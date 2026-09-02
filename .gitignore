@@ -1,0 +1,35 @@
+# PS1 dumps - don't commit game data or bios
+bios/*.BIN
+bios/*.bin
+*.bin
+*.cue
+*.iso
+*.img
+*.BIN
+
+# Extracted / temp
+/tmp/
+gt2_extract/
+*.psx
+*.VOL
+*.OVL
+GT2.OVL.decompressed
+gt2.iso
+
+# Build
+build/
+out/
+*.o
+*.a
+*.so
+*.exe
+
+# Ghidra
+*.gpr
+*.ghidra/
+*.rep/
+
+# IDE
+.vscode/
+.idea/
+*.swp
