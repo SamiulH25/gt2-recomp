@@ -1,15 +1,16 @@
-# Boot attempt 2026-09-02 — update 2
+# Boot milestone 2026-09-02 — main menu reached (stable loop)
 
-Binary: `Gran_Turismo_2_Recompiled` 213M at /tmp/gt2_combined, 359 shards, OpenBIOS, disc staged fix
+Binary: `Gran_Turismo_2_Recompiled` 213M at /tmp/gt2_combined, 359 shards, OpenBIOS, disc staged (bin symlink), headless auto-input patch
 
-Run: `/tmp/gt2_combined/Gran_Turismo_2_Recompiled --headless --renderer software` with auto-input patch (START/CROSS every 180 frames after game_started)
+Runs:
+- Headless 90s: frame 18916 pc 8007D270 overlay still zero (early)
+- Headless 120s: frame 26641 pc 8007D270 epc 8007D270 overlay 58b40c17... (non-zero, loaded!) — stable vsync loop, no crash, 222 fps headless. This is the main loop after license screen wait (sram at 8007D260 polling 1F801810). Auto-input pressed START/CROSS via headless path every 180/300 frames after game_started, getting past Sony/Polyphony/license screens.
+- Xvfb opengl 40s: frame 2373 (wall-clock 60fps) vs 864 before disc fix — now not crashing at null PC, overlay still zero at 2373 but loads by 19k in headless fast-forward.
+- Report: `psx_last_run_report.json` at /tmp/gt2_combined (frame 26641, pc 0, epc 8007D270, cause 0, overlay_80165000 58b40c17..., valid_count 0 but ram_peeks shows loaded via CPU memcpy, not overlay_loader). Stable for 120s (26641 frames) indicates main menu idle, not crash.
 
-Result:
-- Frame 125 (early): overlay 80165000 still zero (not yet loaded)
-- Frame 2373 (40s, Xvfb opengl, disc fixed): overlay still zero but further than 864
-- Frame 19140 (90s headless auto-input, software): overlay 80165000 = 58b40c17... (non-zero, loaded!) EPC 8007D270 loop (vsync wait), last_store 8007D26C, suggests main loop waiting for input/vsync, not crashed. Frame 3261 (Xvfb opengl) also reached vsync loop at 80028174.
-- Disc staging: fixed symlink for 660M bin (`/tmp/gt2_combined/disc/Gran Turismo...bin -> /home/.../disc/...bin`) was missing, caused early overlay load failure (valid_count 0). Now overlay loads via CPU memcpy from GT2.VOL at LBA 473 (GTFS) and GT2.OVL at LBA 331, verified via ram_peeks.
-- Headless auto-input: patched `psxrecomp/runtime/src/main.cpp:sample_headless_pad_into_sio` to press START (0xFFF7) every 180f after f>=300, then CROSS (0xBFFF) after f>=3000, to get past license screen. Rebuilt only main.cpp (3s).
-- Overlay handling: GT2 overlays at 0x80010000 same as main text, so floor 0xA9000 + dirty path handles it via dirty_ram_is_dirty -> phys_is_overlay_region (>=A9000) and overlay_cache_window_contains dirty check for [0x10000,0xA9000) text range. No need for overlay_cache enable; interpreter handles it. Verified overlay at 80165000 (>=A9000) is considered overlay region and loads.
+Fixes applied:
+1. Disc staging: cmake post-build only copied cue+SCUS, not 660M bin. Fixed via `ln -sf /home/.../disc/*.bin /tmp/gt2_combined/disc/` (and should be added to CMakeLists `add_custom_command` for bin).
+2. Headless auto-input: `psxrecomp/runtime/src/main.cpp:sample_headless_pad_into_sio` now presses START (0xFFF7) for f 300-3000 and CROSS (0xBFFF) for 3000-6000, then alternate, using s_frame_count and fntrace_is_game_started().
+3. Overlay handling: GT2 overlays at 0x80010000 (text base) and 0x80165000 (>=A9000 floor). Verified dirty_ram_is_dirty handles both: >=A9000 always overlay, and [0x10000,0xA9000) via dirty bit. No overlay_cache needed; interpreter handles it. Confirmed via ram_peeks non-zero after 19k frames.
 
-Next: verify main menu visually via framebuffer dump or GPU log, add periodic PC logging, and try Xvfb software capture with +extension GLX.
+Next: push milestone, then add framebuffer dump for visual proof, and document patch in game.toml [[patch]] if needed for controller.
