@@ -19,8 +19,10 @@ add_executable(gt2
     # ${RECOMP_SRC}
 )
 
+find_package(ZLIB REQUIRED)
 target_include_directories(gt2 PRIVATE runtime)
-target_link_libraries(gt2 PRIVATE gt2_runtime m)
+target_link_libraries(gt2 PRIVATE gt2_runtime m ZLIB::ZLIB)
+target_link_libraries(gt2_runtime PRIVATE ZLIB::ZLIB)
 
 # Toolchain note: use psx-recomp to generate src/recomp/* from /tmp/opencode/SCUS_944.88 + GT2.OVL.decompressed
 # Example:
