@@ -39,3 +39,5 @@ disc/
 # seeds kept
 overlays/
 generated/
+psx_last_run_report.json
+saves/
