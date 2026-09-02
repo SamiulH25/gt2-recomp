@@ -33,3 +33,7 @@ out/
 .vscode/
 .idea/
 *.swp
+_upstream/
+generated/
+disc/
+# seeds kept
