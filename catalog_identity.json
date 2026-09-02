@@ -1,0 +1,48 @@
+{
+  "format_version": 1,
+  "game": {
+    "name": "Gran Turismo 2 (USA) (Simulation Mode) (v1.2)",
+    "id": "SCUS-94488",
+    "boot_exe": "SCUS_944.88"
+  },
+  "marketing": {
+    "description": "",
+    "publisher": "",
+    "year": "",
+    "region": "",
+    "players": 2
+  },
+  "rom_identity": {
+    "cue_name": "Gran Turismo 2 (USA) (Simulation Mode) (v1.2).cue",
+    "bin_name": "Gran Turismo 2 (USA) (Simulation Mode) (v1.2).bin",
+    "track_counts": [
+      1
+    ],
+    "require_cue": true,
+    "data_track": {
+      "size": 691850208,
+      "md5": "e697a485b661a12fa6c327186c336a31",
+      "sha1": "c4813703d2ad440ed36670c1ac2c1a66c9dc673d",
+      "crc32": "a0c88c87"
+    },
+    "disc_fp": "7f985aa6865ae752828a4eb0b6cddc9cb1e243ed61f40f2be64e7af91d553dc4"
+  },
+  "exe": {
+    "load_address": "0x80010000",
+    "entry_pc": "0x8005D600",
+    "text_size": "0x00099000",
+    "stack_base": "0x00000000"
+  },
+  "seeds": {
+    "count": 666,
+    "source": "boot_exe_jal"
+  },
+  "warnings": [
+    "cue has only 1 TRACK \u2014 Track-01-only dumps fail multi-track netplay/catalog gates; prefer a full Redump cue."
+  ],
+  "notes": [
+    "entry_pc/load_address/text_size/stack_base taken from PS-X EXE header.",
+    "seeds are first-pass boot-EXE JAL targets (+ entry); expect to grow as overlays / runtime paths are discovered.",
+    "required_disc_fp is psxrecomp-toc-v1 (matches runtime DiscIdentity)."
+  ]
+}

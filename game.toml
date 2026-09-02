@@ -1,0 +1,53 @@
+# Autofilled by tools/new_project_layout/probe_disc.py from your legal dump.
+# Review before shipping. Runtime quirks / overlay seeds still need hand work.
+
+[game]
+name = "Gran Turismo 2 (USA) (Simulation Mode) (v1.2)"
+id = "SCUS-94488"
+players = 2
+exe = "disc/SCUS_944.88"
+disc = "disc/Gran Turismo 2 (USA) (Simulation Mode) (v1.2).cue"
+load_address = "0x80010000"
+entry_pc = "0x8005D600"
+text_size = "0x00099000"
+stack_base = "0x00000000"
+
+# Digests are for data Track 01 (first BINARY FILE / TRACK 01).
+[prepare_disc]
+out_dir = "disc"
+bin_name = "Gran Turismo 2 (USA) (Simulation Mode) (v1.2).bin"
+cue_name = "Gran Turismo 2 (USA) (Simulation Mode) (v1.2).cue"
+boot_exe = "SCUS_944.88"
+known_sizes = [691850208]
+known_md5 = [
+  "e697a485b661a12fa6c327186c336a31",
+]
+known_sha1 = [
+  "c4813703d2ad440ed36670c1ac2c1a66c9dc673d",
+]
+known_crc32 = [
+  "a0c88c87",
+]
+
+[recompiler]
+seeds = "seeds/ghidra_funcs.txt"
+out_dir = "generated"
+strict = true
+
+[runtime]
+window_title = "Gran Turismo 2 (USA) (Simulation Mode) (v1.2) Recompiled"
+memcard_dir = "saves"
+
+[video]
+renderer = "opengl"
+aspect_ratio = "4:3"
+
+[controller]
+default_mode = "digital"
+
+# Online mount gate: digests + track count + optional TOC fingerprint
+# (see docs/NETPLAY.md).
+[netplay]
+require_cue = true
+required_tracks = 1
+required_disc_fp = "7f985aa6865ae752828a4eb0b6cddc9cb1e243ed61f40f2be64e7af91d553dc4"
