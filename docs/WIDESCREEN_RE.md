@@ -17,7 +17,7 @@ SCUS + 6 overlays, all inside these 4 functions (gt2_01 file-VRAM `0x80010000`):
 | `0x8001C17C` | `27BDBFC0` (sp `-0x4040`) | `0x8001C1BC` | RTPS `4A180001` @ `0x8001C1E4`, ~238 COP2 in window |
 | `0x800234F8` | `27BDDFB8` (sp `-0x2048`) | `0x8002353C` | same body shape as `0x8001C17C` (LOD/duplicate?) |
 | `0x80019B58` | `27BDFFF0` (sp `-0x10`) | `0x80019B70` | RTPT `4A280030` @ `0x80019BFC` + `mtc2` vertex block |
-| `0x8002106C` | `27BDFFC8` (sp `-0x38`) | `0x8002109C` | RTPT @ analogous site + `mtc2` vertex block |
+| `0x8002106C` | `27BDFFC8` (sp `-0x38`) | `0x8002109C` | RTPT `4A280030` @ `0x80021128` + `mtc2` vertex block |
 
 GTE op census in gt2_01: RTPS `0x4A180001` x66, RTPT `0x4A280030` x26
 (92 projection sites total), `0x4A780010` x24.

@@ -46,9 +46,18 @@ Remaining RE (see `docs/WIDESCREEN_RE.md` for static findings + verification pla
    (`psx_ws_func_has_screen_cull` + aspect-cone sites).
 3. Then flip to adaptive (up to 21:9) + `hud_sprt_squash` equivalent.
 
-## 60fps pacing (measurement pending)
+## 60fps pacing (pacer measured; guest content rate pending)
 
-GT2 NTSC is 60fps-native in menus; race rate unmeasured. Note
+Wall-clock pacer holds 60Hz: 280s Xvfb windowed run (`--renderer opengl`,
+`GT2_AUTO_INPUT=1`), 273 `[FPS]` samples, min 59.6 / mean 60.4 (first
+sample 185 = pre-pacer burst), zero drops below 55; `present cadence:
+wall-clock pacer (16.68ms)`, `host refresh unknown`, GL `internal scale 2x`
+pipeline with `supersampling 1x` resolve under llvmpipe (see shipped table).
+Run reached frame 16575 (track-pick phase), overlay `58b40c17` loaded.
+
+Unmeasured: guest content rate — whether menus/races render a NEW frame
+every vblank (60fps) or repeat (30fps guest). Method: `present_shot` pairs
+over TCP 4370 in garage vs drive phases, neighbor-md5 compare. Note
 `frame_interpolation` is ALSO mod-owned (same gate as widescreen), so if
 races turn out sub-60 it needs a mod plugin, not config. `vsync` IS
 game.toml-settable (`on`/`off`/`adaptive`) — user's panel is 75Hz vs 59.94
