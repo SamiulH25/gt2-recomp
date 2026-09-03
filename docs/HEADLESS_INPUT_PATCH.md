@@ -1,46 +1,52 @@
 # Headless auto-input + VRAM dump patch for GT2 menu flow
 
 Upstream file: `psxrecomp/runtime/src/main.cpp` (kept as local modification;
-preserved in `tools/patches/psxrecomp-gt2-headless.patch` so fresh clones can
-re-apply with `git -C psxrecomp apply ../tools/patches/psxrecomp-gt2-headless.patch`).
+preserved in `tools/patches/psxrecomp-gt2-headless.patch`, verified to apply
+cleanly to upstream `HEAD` and reproduce the tested source byte-for-byte, so
+fresh clones can re-apply with `git apply tools/patches/...`).
 
-## Auto-input (`sample_headless_pad_into_sio`)
+## Why SIO-level input
 
-Active in headless mode, or in windowed mode with `GT2_AUTO_INPUT=1`.
-Gated on `fntrace_is_game_started()`. PSX pad bits are active-low.
+X11 keyboard does not reach the game under Xvfb (no window manager, no input
+focus), and the runtime's low-latency re-sample overwrites pad slot 0 with
+the idle keyboard every frame — run windowed tests with
+`PSX_LOW_LATENCY_INPUT=0`. The patch drives `sio_set_pad_state_slot(0, ...)`
+directly, active with `--headless` or `GT2_AUTO_INPUT=1`.
+
+## Auto-input phases (guest frames)
+
+Active-low pad bits: START=`0x0008`, CROSS=`0x4000`, UP=`0x0010`,
+LEFT=`0x0080`. Gated on `fntrace_is_game_started()`.
 
 | Frames | Action |
 |---|---|
 | <120 | nothing (pre-game) |
-| 120-2400 | START (`~0x0008`) tap 12/200f — advances license screens |
-| 2400-4800 | CROSS (`~0x4000`) tap 12/200f — title -> main menu |
-| 4800-6000 | settle (garage screen) |
-| 6000-7200 | UP 12/120f for 600f, then LEFT 12/120f — navigate to arcade icon |
-| 7200-8400 | CROSS 12/120f — select arcade icon |
-| 8400-9600 | CROSS 12/120f — pick first car |
-| 9600-10800 | CROSS 12/120f — pick first track |
-| 10800-12000 | CROSS 12/120f — confirm / start race |
+| 120-3000 | CROSS dense taps (12 of every 36f) — license screens + title while the highlight is still on Start Game (it drifts to Replay Theater if idle) |
+| 3000-7000 | CROSS dense taps — card check / new-game dialogs |
+| 7000-11000 | settle (garage screen) |
+| 11000-13000 | UP then LEFT taps — navigate to arcade icon row |
+| 13000-15000 | CROSS taps — select arcade icon |
+| 15000-17000 | CROSS taps — pick first car |
+| 17000-19000 | CROSS taps — pick first track |
+| 19000-21000 | CROSS taps — confirm / start race |
+| 21000-60000 | CROSS held (gas) + UP nudges — drive |
+
+Dense 12/36 duty (instead of sparse 12/200) so wall-clock CD timing can't
+strand the game between taps. Proven: garage at 45s wall-clock.
 
 ## VRAM dump (`gt2_headless_dump_vram`)
 
 Enabled with `GT2_AUTO_DUMP=1` in headless mode. Writes `gt2_dump_<frame>.png`
 to the cwd using `gpu_get_display_info` + `gpu_display_pixel_rgb` +
-`png_write_rgb` (already linked in runtime):
+`png_write_rgb`:
 
 - Starts at frame 6000 and only after `fntrace_is_game_started()`
-- Every 300 frames for 6000-15000 (menu navigation), every 1200 after
-- Skips when display disabled or 0-sized
+- Every 400 frames through 60000, every 1200 after
 
-## Run
+## Run (silent — does not touch host audio)
 
 ```
-mkdir -p /tmp/opencode/gt2-run/{disc,bios,build/mods,saves}
-cp game.toml /tmp/opencode/gt2-run/
-ln -sf <repo>/disc/* /tmp/opencode/gt2-run/disc/
-cp <repo>/build/bios/openbios.bin /tmp/opencode/gt2-run/bios/
-cp <repo>/build/Gran_Turismo_2_Recompiled /tmp/opencode/gt2-run/
-cp -r <repo>/build/mods/packages /tmp/opencode/gt2-run/mods/
-cd /tmp/opencode/gt2-run && GT2_AUTO_DUMP=1 ./Gran_Turismo_2_Recompiled --headless --renderer software
+SDL_AUDIODRIVER=dummy SDL_VIDEODRIVER=x11 DISPLAY=:98 <binary> --renderer software
 ```
 
 Note: binary must live in a user-writable dir — mods state is

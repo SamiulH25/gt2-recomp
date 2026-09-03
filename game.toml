@@ -53,7 +53,10 @@ required_tracks = 1
 required_disc_fp = "7f985aa6865ae752828a4eb0b6cddc9cb1e243ed61f40f2be64e7af91d553dc4"
 
 # Patches applied for main menu:
-# - headless auto-input via psxrecomp/runtime/src/main.cpp:sample_headless_pad_into_sio (START 0xFFF7 / CROSS 0xBFFF every 180f)
+# - headless auto-input + VRAM dump via tools/patches/psxrecomp-gt2-headless.patch
+#   (SIO-level START/CROSS/d-pad phases to garage + race drive; see docs/HEADLESS_INPUT_PATCH.md)
+# - windowed tests need PSX_LOW_LATENCY_INPUT=0 (runtime re-sample stomps slot 0)
+# - background tests need SDL_AUDIODRIVER=dummy (windowed runs open host audio)
 # - disc staging fix: ensure 660M bin is symlinked to build/disc (cmake POST_BUILD should copy bin)
 # - overlay floor 0xA9000 derived from load_address 0x80010000 + text_size 0x99000, verified via dirty_ram_is_dirty for 0x80165000
 # No game.toml [[patch]] needed for memory; overlay handled via interpreter, GTFS via ISOReader.

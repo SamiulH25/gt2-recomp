@@ -1,8 +1,6 @@
-diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index cec6e77..9d0b069 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
-@@ -5617,6 +5617,53 @@ static void sample_pad_into_sio(int override) {
+@@ -5617,6 +5617,53 @@
      }
  }
  
@@ -56,7 +54,7 @@ index cec6e77..9d0b069 100644
  static void sample_headless_pad_into_sio(int override) {
      if (override < 0) {
          uint16_t mash = 0xFFFFu;
-@@ -5638,32 +5685,52 @@ static void sample_headless_pad_into_sio(int override) {
+@@ -5638,32 +5685,58 @@
        sio_set_pad_state_slot(1, (uint16_t)g_cosim_pad_hold[1]);
        return; }
  #endif
@@ -86,53 +84,58 @@ index cec6e77..9d0b069 100644
 -            sio_set_pad_state_slot(0, buttons);
 -            sio_set_pad_state_slot(1, 0xFFFFu);
 -            return;
--        }
 +    if (!fntrace_is_game_started()) {
 +        sio_set_pad_state_slot(0, 0xFFFFu);
 +        sio_set_pad_state_slot(1, 0xFFFFu);
 +        return;
-     }
--    sio_set_pad_state_slot(0, 0xFFFFu);
++    }
 +    uint64_t f = s_frame_count;
 +    uint16_t buttons = 0xFFFFu;
-+    /* Each phase: hold a button for 12 of every N frames. The dump runs every
-+     * 300 frames during navigation so each step is observable. */
++    /* Dense taps (12 of every 36 frames) so boot timing (wall-clock CD speed
++     * vs guest frames) cannot strand us between taps. */
 +    if (f < 120) {
 +        /* Pre-game: nothing. */
-+    } else if (f < 2400) {
-+        /* License screen: tap START every 200 frames to advance. */
-+        if ((f % 200) < 12) buttons &= ~0x0008u; // START
-+    } else if (f < 4800) {
-+        /* Title → main menu: tap CROSS every 200 frames to enter. */
-+        if ((f % 200) < 12) buttons &= ~0x4000u; // CROSS
-+    } else if (f < 6000) {
++    } else if (f < 3000) {
++        /* License + early title: dense CROSS taps (12 of every 36). CROSS
++         * confirms the highlighted item; the highlight starts on Start Game
++         * but drifts to Replay Theater if left idle, so hit it early. */
++        if ((f % 36) < 12) buttons &= ~0x4000u; // CROSS
++    } else if (f < 7000) {
++        /* Card check / new-game dialogs: dense CROSS taps to confirm. */
++        if ((f % 36) < 12) buttons &= ~0x4000u; // CROSS
++    } else if (f < 11000) {
 +        /* Settle on garage screen. */
-+    } else if (f < 7200) {
++    } else if (f < 13000) {
 +        /* Navigate to arcade (checkered flag) icon: UP then LEFT. */
-+        uint64_t r = f - 6000;
-+        if (r < 600) {
++        uint64_t r = f - 11000;
++        if (r < 1000) {
 +            if ((r % 120) < 12) buttons &= ~0x0010u; // UP to top icon row
 +        } else {
 +            if ((r % 120) < 12) buttons &= ~0x0080u; // LEFT toward racing icon
-+        }
-+    } else if (f < 8400) {
+         }
++    } else if (f < 15000) {
 +        /* Select arcade icon. */
 +        if ((f % 120) < 12) buttons &= ~0x4000u; // CROSS
-+    } else if (f < 9600) {
++    } else if (f < 17000) {
 +        /* Arcade car list: pick first car. */
 +        if ((f % 120) < 12) buttons &= ~0x4000u; // CROSS confirm car
-+    } else if (f < 10800) {
++    } else if (f < 19000) {
 +        /* Track list: pick first track. */
 +        if ((f % 120) < 12) buttons &= ~0x4000u; // CROSS confirm track
-+    } else if (f < 12000) {
++    } else if (f < 21000) {
 +        /* Start race / confirm. */
 +        if ((f % 120) < 12) buttons &= ~0x4000u; // CROSS go
-+    }
++    } else if (f < 60000) {
++        /* In race: hold CROSS (accelerate) with periodic UP taps. */
++        buttons &= ~0x4000u; // CROSS held = gas
++        if ((f % 240) < 12) buttons &= ~0x0010u; // UP nudge (steer straight)
+     }
+-    sio_set_pad_state_slot(0, 0xFFFFu);
 +    sio_set_pad_state_slot(0, buttons);
      sio_set_pad_state_slot(1, 0xFFFFu);
  }
  
-@@ -6735,11 +6802,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -6735,11 +6808,12 @@
          /* Solo resim self-check replay republishes the recorded rows itself —
           * live sampling must not touch SIO during the replay window. */
          if (!psx_selfcheck_replay_input()) {
