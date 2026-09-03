@@ -37,7 +37,8 @@ Scaffolded, default off:
 - `mods/gt2-widescreen/1.0.0/manifest.toml` — format-5 manifest, feature
   `widescreen-16x9`, `default_enabled = false`.
 
-Remaining RE (see `tools/ghidra/LoadGT2Overlays.py`, gt2-reversing symbols):
+Remaining RE (see `docs/WIDESCREEN_RE.md` for static findings + verification plan,
+`tools/ghidra/LoadGT2Overlays.py`, gt2-reversing symbols):
 
 1. `ws_sprite_tag_funcs` — guest addrs of per-prim functions ($a0 = prim)
    + `ws_sprite_anchor_addr`, so HUD/sprites re-squash around anchors.
