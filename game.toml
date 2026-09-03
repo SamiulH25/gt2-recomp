@@ -40,7 +40,18 @@ memcard_dir = "saves"
 
 [video]
 renderer = "opengl"
+# Resolution / clarity upgrades (verified under GL; supersampling applies on
+# real GPUs — llvmpipe clamps to 1x, see docs/ENHANCEMENTS.md).
+supersampling = 2
+antialiasing = true
+texture_filtering = "bilinear"
+geometry_correction = true
+perspective_texturing = true
 aspect_ratio = "4:3"
+
+[audio]
+# Catmull-Rom SPU resample; cheap, strictly better than stock.
+spu_hq = true
 
 [controller]
 default_mode = "digital"
