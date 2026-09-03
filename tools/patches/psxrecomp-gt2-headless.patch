@@ -1,0 +1,148 @@
+diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
+index cec6e77..9d0b069 100644
+--- a/runtime/src/main.cpp
++++ b/runtime/src/main.cpp
+@@ -5617,6 +5617,53 @@ static void sample_pad_into_sio(int override) {
+     }
+ }
+ 
++/* GT2 headless VRAM dump: when GT2_AUTO_DUMP=1, writes a PNG of the current
++ * display every N frames so the menu flow can be inspected without a window.
++ * Files are written to the cwd as gt2_dump_<frame>.png. */
++static void gt2_headless_dump_vram(void) {
++    static int enabled = -1;
++    if (enabled < 0) {
++        const char *e = std::getenv("GT2_AUTO_DUMP");
++        enabled = (e && *e && *e != '0') ? 1 : 0;
++    }
++    if (!enabled) return;
++    extern uint64_t s_frame_count;
++    uint64_t f = s_frame_count;
++    static uint64_t last_dump = 0;
++    extern int fntrace_is_game_started(void);
++    if (!fntrace_is_game_started()) return;
++    if (f < 6000) return;
++    /* Fast cadence (every 300 frames) during menu navigation (6000-15000),
++     * slow cadence (every 1200 frames) once we should be in a race. */
++    uint64_t interval = (f < 15000) ? 300 : 1200;
++    if (f - last_dump < interval) return;
++    last_dump = f;
++    GpuDisplayInfo di;
++    gpu_get_display_info(&di);
++    if (di.disabled || di.width == 0 || di.height == 0) return;
++    uint32_t w = di.width;  if (w > 640) w = 640;
++    uint32_t h = di.height; if (h > 512) h = 512;
++    uint8_t *rgb = (uint8_t *)malloc((size_t)w * h * 3);
++    if (!rgb) return;
++    for (uint32_t y = 0; y < h; y++)
++        for (uint32_t x = 0; x < w; x++) {
++            uint8_t r, g, b;
++            gpu_display_pixel_rgb(&di, x, y, &r, &g, &b);
++            size_t i = ((size_t)y * w + x) * 3;
++            rgb[i] = r; rgb[i+1] = g; rgb[i+2] = b;
++        }
++    char path[256];
++    std::snprintf(path, sizeof(path), "gt2_dump_%08llu.png", (unsigned long long)f);
++    FILE *fp = std::fopen(path, "wb");
++    if (fp) {
++        png_write_rgb(fp, rgb, w, h);
++        std::fclose(fp);
++        std::fprintf(stderr, "[gt2_dump] frame %llu -> %s (%ux%u)\n",
++                     (unsigned long long)f, path, w, h);
++    }
++    free(rgb);
++}
++
+ static void sample_headless_pad_into_sio(int override) {
+     if (override < 0) {
+         uint16_t mash = 0xFFFFu;
+@@ -5638,32 +5685,52 @@ static void sample_headless_pad_into_sio(int override) {
+       sio_set_pad_state_slot(1, (uint16_t)g_cosim_pad_hold[1]);
+       return; }
+ #endif
+-    // GT2 auto-input for headless CI: press START periodically to get past license screen,
+-    // then CROSS to enter main menu. Uses frame counter.
++    // GT2 auto-input for headless CI: navigate boot → license skip → main menu →
++    // garage → arcade icon → car select → track select → race start.
++    // PSX pad buttons (active-low bits): UP=4 DOWN=6 LEFT=7 RIGHT=5 CROSS=14 CIRCLE=13.
+     extern uint64_t s_frame_count;
+     extern int fntrace_is_game_started(void);
+-    if (fntrace_is_game_started()) {
+-        uint64_t f = s_frame_count;
+-        uint16_t buttons = 0xFFFFu;
+-        if (f >= 300 && f < 3000) {
+-            uint64_t rel = f - 300;
+-            if ((rel % 180) < 12) buttons = 0xFFF7u; // START = bit 3
+-            else buttons = 0xFFFFu;
+-        } else if (f >= 3000 && f < 6000) {
+-            uint64_t rel = f - 3000;
+-            if ((rel % 180) < 12) buttons = 0xBFFFu; // CROSS = bit 14
+-            else buttons = 0xFFFFu;
+-        } else if (f >= 6000) {
+-            uint64_t rel = f - 6000;
+-            if ((rel % 300) < 12) buttons = (rel % 600 < 300) ? 0xFFF7u : 0xBFFFu;
+-        }
+-        if (buttons != 0xFFFFu) {
+-            sio_set_pad_state_slot(0, buttons);
+-            sio_set_pad_state_slot(1, 0xFFFFu);
+-            return;
+-        }
++    if (!fntrace_is_game_started()) {
++        sio_set_pad_state_slot(0, 0xFFFFu);
++        sio_set_pad_state_slot(1, 0xFFFFu);
++        return;
+     }
+-    sio_set_pad_state_slot(0, 0xFFFFu);
++    uint64_t f = s_frame_count;
++    uint16_t buttons = 0xFFFFu;
++    /* Each phase: hold a button for 12 of every N frames. The dump runs every
++     * 300 frames during navigation so each step is observable. */
++    if (f < 120) {
++        /* Pre-game: nothing. */
++    } else if (f < 2400) {
++        /* License screen: tap START every 200 frames to advance. */
++        if ((f % 200) < 12) buttons &= ~0x0008u; // START
++    } else if (f < 4800) {
++        /* Title → main menu: tap CROSS every 200 frames to enter. */
++        if ((f % 200) < 12) buttons &= ~0x4000u; // CROSS
++    } else if (f < 6000) {
++        /* Settle on garage screen. */
++    } else if (f < 7200) {
++        /* Navigate to arcade (checkered flag) icon: UP then LEFT. */
++        uint64_t r = f - 6000;
++        if (r < 600) {
++            if ((r % 120) < 12) buttons &= ~0x0010u; // UP to top icon row
++        } else {
++            if ((r % 120) < 12) buttons &= ~0x0080u; // LEFT toward racing icon
++        }
++    } else if (f < 8400) {
++        /* Select arcade icon. */
++        if ((f % 120) < 12) buttons &= ~0x4000u; // CROSS
++    } else if (f < 9600) {
++        /* Arcade car list: pick first car. */
++        if ((f % 120) < 12) buttons &= ~0x4000u; // CROSS confirm car
++    } else if (f < 10800) {
++        /* Track list: pick first track. */
++        if ((f % 120) < 12) buttons &= ~0x4000u; // CROSS confirm track
++    } else if (f < 12000) {
++        /* Start race / confirm. */
++        if ((f % 120) < 12) buttons &= ~0x4000u; // CROSS go
++    }
++    sio_set_pad_state_slot(0, buttons);
+     sio_set_pad_state_slot(1, 0xFFFFu);
+ }
+ 
+@@ -6735,11 +6802,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+         /* Solo resim self-check replay republishes the recorded rows itself —
+          * live sampling must not touch SIO during the replay window. */
+         if (!psx_selfcheck_replay_input()) {
+-            if (g_headless)
++            if (g_headless || std::getenv("GT2_AUTO_INPUT"))
+                 sample_headless_pad_into_sio(override);
+             else
+                 sample_pad_into_sio(override);
+         }
++        if (g_headless) gt2_headless_dump_vram();
+         /* Offline vblank boundary: record/replay/compare (PSX_RB_SELFCHECK).
+          * Defer opening a window while multitap arming is still pending —
+          * the arm writes SIO once, host-latched, and would not replay. */
