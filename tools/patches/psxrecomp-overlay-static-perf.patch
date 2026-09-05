@@ -1,0 +1,106 @@
+diff --git a/tools/compile_overlays.py b/tools/compile_overlays.py
+index d2abb47..b73fd7e 100644
+--- a/tools/compile_overlays.py
++++ b/tools/compile_overlays.py
+@@ -2217,18 +2217,31 @@ def parse_cps_continuation_owners(src: str) -> dict:
+ 
+ 
+ def add_cps_resume_case(src: str, host_symbol: str,
+-                        host: int, entry: int) -> tuple:
++                        host: int, entry: int,
++                        def_start: int = -1) -> tuple:
+     """Make ``entry`` a legal ``cpu->pc`` resume point in one native host."""
+-    definition = re.search(
+-        rf'^void {re.escape(host_symbol)}\(CPUState\* cpu\)\n\{{',
+-        src, re.MULTILINE)
+-    if not definition:
+-        return src, False
++    if def_start < 0:
++        definition = re.search(
++            rf'^void {re.escape(host_symbol)}\(CPUState\* cpu\)\n\{{',
++            src, re.MULTILINE)
++        if not definition:
++            return src, False
++        def_start = definition.start()
++        def_end = definition.end()
++    else:
++        def_end = def_start + len(host_symbol) + 30
++        # resync: find the exact '{' end from the known start
++        m = re.match(
++            r'void [A-Za-z_][A-Za-z0-9_]*\(CPUState\* cpu\)\n\{',
++            src[def_start:def_start + len(host_symbol) + 64])
++        if not m:
++            return src, False
++        def_end = def_start + m.end()
+     next_definition = re.search(r'^void [A-Za-z_][A-Za-z0-9_]*\(CPUState\* cpu\)',
+-                                src[definition.end():], re.MULTILINE)
+-    end = (definition.end() + next_definition.start()
++                                src[def_end:], re.MULTILINE)
++    end = (def_end + next_definition.start()
+            if next_definition else len(src))
+-    segment = src[definition.start():end]
++    segment = src[def_start:end]
+     if not re.search(rf'^block_{entry:08X}:', segment, re.MULTILINE):
+         return src, False
+     if f'case 0x{entry:08X}u: goto block_{entry:08X};' in segment:
+@@ -2238,7 +2251,7 @@ def add_cps_resume_case(src: str, host_symbol: str,
+     prologue = segment[:hook] if hook >= 0 else ''
+     default_match = re.search(r'^\s+default:', prologue, re.MULTILINE)
+     if 'if (cpu->pc != 0u)' in prologue and default_match:
+-        insert = definition.start() + default_match.start()
++        insert = def_start + default_match.start()
+         indent = re.match(r'\s*', prologue[default_match.start():]).group(0)
+         arm = f'{indent}case 0x{entry:08X}u: goto block_{entry:08X};\n'
+         return src[:insert] + arm + src[insert:], True
+@@ -2253,7 +2266,7 @@ def add_cps_resume_case(src: str, host_symbol: str,
+         f'0x{host:08X}u, _cont); return;\n'
+         '        }\n'
+         '    }')
+-    return src[:definition.end()] + prologue_text + src[definition.end():], True
++    return src[:def_end] + prologue_text + src[def_end:], True
+ 
+ 
+ def generate_overlay_dispatch(variants: list) -> str:
+@@ -6754,6 +6767,17 @@ def main():
+             nonlocal synthesized
+             for part in parts:
+                 done = part.setdefault('resume_entries', set())
++                # Index host-function definition offsets once: add_cps_resume_case
++                # re-searches the whole (multi-MB) src per entry, which is
++                # O(entries x src) with re.MULTILINE miss scans (~0.15s each on
++                # 25MB). Precompute offsets keyed by symbol.
++                def_index = {}
++                for dm in re.finditer(
++                        r'^void ([A-Za-z_][A-Za-z0-9_]*)\(CPUState\* cpu\)\n\{',
++                        part['src'], re.MULTILINE):
++                    def_index.setdefault(dm.group(1), dm.start())
++                # The resume-case edit shifts every later offset: track the
++                # cumulative shift per symbol instead of rescanning.
+                 for entry, host in sorted(part['continuation_owners'].items()):
+                     if entry in part['func_addrs'] or entry in done:
+                         continue
+@@ -6761,10 +6785,23 @@ def main():
+                         continue
+                     symbol = f'{part["namespace"]}_func_{entry:08X}'
+                     host_symbol = part['symbols'][host]
++                    host_off = def_index.get(host_symbol, -1)
++                    if host_off is None or host_off < 0:
++                        continue
++                    before_len = len(part['src'])
+                     part['src'], resume_ok = add_cps_resume_case(
+-                        part['src'], host_symbol, host, entry)
++                        part['src'], host_symbol, host, entry,
++                        def_start=host_off)
+                     if not resume_ok:
+                         continue
++                    # Shift every definition at/after the edit point by the
++                    # inserted length; rebuild is O(symbols) per call but
++                    # symbols (~600) << src bytes (25M), so this stays linear.
++                    delta = len(part['src']) - before_len
++                    if delta:
++                        for sym in def_index:
++                            if def_index[sym] >= host_off:
++                                def_index[sym] += delta
+                     part['src'] += (
+                         f'\n/* CPS block resume entry owned by 0x{host:08X}. */\n'
+                         f'void {symbol}(CPUState* cpu)\n{{\n'
