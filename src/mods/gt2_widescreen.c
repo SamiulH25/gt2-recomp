@@ -34,7 +34,20 @@
 extern void psx_ws_sprite_tag(struct CPUState* cpu);
 
 /* gt2_01 projection-funnel entries (compile-time VRAM 0x80010000 base).
- * Each entry: guest PC, prologue word (guard against overlay aliasing). */
+ * Each entry: guest PC, prologue word (guard against overlay aliasing).
+ *
+ * ANCHOR STATUS (decoded 2026-09-05 from overlays/gt2_01.exe):
+ *  - 0x80019B58 / 0x8002106C: store *(a0+0) to 0x1F800070 at ENTRY
+ *    (lw r2,0(r16); sw r2,0x70(at) BEFORE any RTPS/RTPT). At tag time the
+ *    anchor holds the OBJECT POINTER (= $a0 = tag key), not a projected SXY.
+ *    Anchor equality (ax == key&0xFFFF) means "unsquash to native" — the
+ *    prim re-renders at 4:3 coords and the stretched present then stretches
+ *    it. In squash mode that is CORRECT for world geometry (GTE pre-squashed
+ *    the projection for the stretch). Do NOT "fix" by disabling.
+ *  - 0x8001C17C / 0x800234F8: NO SXY store to 0x1F800070 in the funnel head;
+ *    the lui/sw pair there targets vertex-table writes (swc2 to r10), not the
+ *    anchor. Tags from these two sites carry a STALE anchor (whatever the last
+ *    RTPT funnel left). They still count for game-mode detection. */
 static const struct { uint32_t pc; uint32_t prologue; } gt2_ws_tag_sites[] = {
     { 0x8001C17C, 0x27BDBFC0 },  /* sp -0x4040, RTPS @ 0x8001C1E4 */
     { 0x800234F8, 0x27BDDFB8 },  /* sp -0x2048, LOD/duplicate of 0x8001C17C */
