@@ -1,9 +1,10 @@
 # Worklog — GT2 Hybrid Recompilation
 
-Updated: 2026-09-04
+Updated: 2026-09-05
 
 ## Done
 
+- [2026-09-05] Fixed 18 root-owned files (src, build artifacts, scratch logs) → bob2142:bob2142
 - [2026-09-05] All 6 overlays static (1305 funcs): boot interp spike gone, steady 45K insn/s = kernel/scheduler territory. Game code fully native; pushed
 - [2026-09-04] Static overlay codegen unblocked: synth loop was O(n²) string rebuilds (25MB src × 10k iters); shift-tracking fix in psxrecomp/tools/compile_overlays.py, full gt2_01 static compile running
 - [2026-09-03 live] Squash-mode 16:9 (native_wide=false, gte_game_mode=true): killed side-margin flicker; native-wide double-draw at 4x was the slowdown/barely-render. Texture seams at 4x still open

@@ -72,6 +72,12 @@ if(EXISTS "${PSXRECOMP_ROOT}/runtime/runtime.cmake")
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/disc/SCUS_944.88"
                 "$<TARGET_FILE_DIR:gt2-psxrecomp>/disc/SCUS_944.88"
+            # Game-owned mods: framework POST_BUILD wipes mods/packages then
+            # stages builtins, so install ours after (this command runs later).
+            # Without this, gt2.widescreen is missing and aspect clamps to 4:3.
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/mods/gt2-widescreen"
+                "$<TARGET_FILE_DIR:gt2-psxrecomp>/mods/packages/gt2.widescreen"
             VERBATIM)
         message(STATUS "GT2 psxrecomp target gt2-psxrecomp enabled (358 shards)")
     else()
