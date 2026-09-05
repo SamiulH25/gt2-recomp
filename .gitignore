@@ -41,3 +41,7 @@ overlays/
 generated/
 psx_last_run_report.json
 saves/
+
+.commandcode/
+psx_cps_exit_trace.json
+.scratch/

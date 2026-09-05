@@ -40,7 +40,35 @@ memcard_dir = "saves"
 
 [video]
 renderer = "opengl"
-aspect_ratio = "4:3"
+# Resolution / clarity upgrades (verified under GL; supersampling applies on
+# real GPUs — llvmpipe clamps to 1x, see docs/ENHANCEMENTS.md).
+supersampling = 2
+antialiasing = true
+texture_filtering = "bilinear"
+geometry_correction = false
+perspective_texturing = false
+aspect_ratio = "16:9"
+
+[widescreen]
+# GTE-activity gameplay detector: GT2's 3D frames project hundreds of verts
+# through RTPS/RTPT, menus project ~none. Sticky 45-frame hysteresis kills
+# the wide/4:3 side-margin flicker from the 2-frame sprite-tag window.
+gte_game_mode = true
+# Squash path (not native-wide): native-wide mirrors every prim into a
+# second wide FBO — at 4x internal that's the slowdown + barely-rendering.
+# Squash keeps one draw pass; sprite tags + hud squash stay active.
+native_wide = false
+# Scratchpad addr holding the prim's GTE-projected SXY at tag time. Same
+# Tomba convention — UNVERIFIED for GT2 (see docs/WIDESCREEN_RE.md §"Anchor
+# semantics UNVERIFIED"). Wire only after runtime confirmation that 0x1F800070
+# holds an SXY value (not a pointer) when tag funcs execute.
+sprite_anchor_addr = "0x1F800070"
+# Center/edge-squash untagged SPRTs (screen-space HUD/menus). Runtime-only.
+hud_sprt_squash = true
+
+[audio]
+# Catmull-Rom SPU resample; cheap, strictly better than stock.
+spu_hq = true
 
 [controller]
 default_mode = "digital"

@@ -40,6 +40,22 @@ if(EXISTS "${PSXRECOMP_ROOT}/runtime/runtime.cmake")
             GEN_MARKER "generated/SCUS_944.88_dispatch.c"
             GEN_FULL_GLOB "generated/SCUS_944.88_full_*.c"
         )
+        # Static overlay dispatch (Layer B): gt2_01 3D engine natively compiled.
+        # Wired directly (not via the GAME wrapper — it does not forward this arg).
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/generated/overlays/overlays_static.c")
+            set_source_files_properties(
+                "${CMAKE_CURRENT_SOURCE_DIR}/generated/overlays/overlays_static.c"
+                PROPERTIES GENERATED TRUE)
+            target_sources(gt2-psxrecomp PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}/generated/overlays/overlays_static.c")
+            target_compile_definitions(gt2-psxrecomp PRIVATE PSX_HAS_OVERLAY_DISPATCH=1)
+            message(STATUS "GT2 static overlay dispatch enabled (gt2_01 native)")
+        endif()
+        # Game-owned enhancement plugins (statically linked, default off,
+        # activated via mods/*/manifest.toml format-5 [[plugin]] entries).
+        file(GLOB GT2_MOD_SOURCES CONFIGURE_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/mods/*.c")
+        target_sources(gt2-psxrecomp PRIVATE ${GT2_MOD_SOURCES})
         # Stage game.toml and disc images beside binary for direct launch
         add_custom_command(TARGET gt2-psxrecomp POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory
