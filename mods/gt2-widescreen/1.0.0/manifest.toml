@@ -3,7 +3,7 @@ id = "gt2.widescreen"
 version = "1.0.0"
 name = "GT2 Widescreen (16:9)"
 author = "gt2-recomp"
-description = "16:9 display aspect via GTE X-squash. World geometry keeps correct proportions; HUD stretches until sprite tags land (see src/mods/gt2_widescreen.c)."
+description = "16:9 display aspect via GTE X-squash. World geometry keeps correct proportions; HUD squashes via hud_sprt_squash. Sprite tags active via function_entry_plugin (overlay-aware) — see src/mods/gt2_widescreen.c."
 license = "MIT"
 resolver = "declarative"
 

@@ -1,7 +1,11 @@
-# GT2 widescreen RE — render funnel + sprite-tag candidates
+# GT2 widescreen RE — render funnel + sprite-tag implementation
 
-Status: static analysis done (2026-09-02). Runtime verification pending.
-Parent: `docs/ENHANCEMENTS.md` ("Widescreen — scaffolded, RE pending").
+Status: static analysis done (2026-09-02). Sprite-tag plugin implemented
+(2026-09-03) — runtime verification pending (overlay load address + anchor
+semantics).
+
+Parent: `docs/ENHANCEMENTS.md` ("Widescreen — active, sprite tags pending
+verification").
 
 ## Result
 
@@ -22,6 +26,29 @@ SCUS + 6 overlays, all inside these 4 functions (gt2_01 file-VRAM `0x80010000`):
 GTE op census in gt2_01: RTPS `0x4A180001` x66, RTPT `0x4A280030` x26
 (92 projection sites total), `0x4A780010` x24.
 
+## Implementation (overlay-aware, runtime-only)
+
+These 4 functions live in the `gt2_01` overlay, NOT in SCUS — so the
+recompiler's `sprite_tag_funcs` config (which emits `psx_ws_sprite_tag()` into
+generated SCUS code) would NOT tag them. Instead, `src/mods/gt2_widescreen.c`
+uses `psx_mod_register_function_entry_plugin()`:
+
+- The runtime fires `psx_mod_function_entry()` on BOTH generated code AND the
+  interpreter dispatch (`runtime/src/dirty_ram_interp.c:2877`) — the path
+  overlays actually execute on.
+- Each callback reads the prologue word at the entry PC and compares to the
+  expected value (overlay aliasing guard — all 6 members claim VRAM
+  `0x80010000`), then calls `psx_ws_sprite_tag(cpu)` directly (statically
+  linked into the same binary).
+- This is runtime-only: no game regen needed.
+
+Config in `game.toml`:
+```toml
+[widescreen]
+sprite_anchor_addr = "0x1F800070"
+hud_sprt_squash = true
+```
+
 ## Negative results (constrain the design)
 
 1. **No classic screen-extent cull funnel.** No function in SCUS or any
@@ -39,58 +66,41 @@ GTE op census in gt2_01: RTPS `0x4A180001` x66, RTPT `0x4A280030` x26
    in `0x8001C17C`/`0x800234F8` the stored value is `sp+0x20` (a pointer),
    not obviously an SXY value. Tomba stores the projected SXY value there;
    GT2 may store a pointer and write SXY later in the function (tails not
-   fully decoded — capstone stops at the COP2 function words). Do NOT copy
-   Tomba's `sprite_anchor_addr` blindly: confirm an SXY-value store to
-   `0x1F800070` after RTPS/RTPT before wiring tags.
+   fully decoded — capstone stops at the COP2 function words). Verify an
+   SXY-value store to `0x1F800070` after RTPS/RTPT before trusting tags.
 
-## Open questions
+## Open questions (runtime verification)
 
 1. **Runtime load address.** Candidates assume gt2_01 VRAM `0x80010000`
    (splat). At runtime the A9000+ overlay region (`0x80165000` signature
    `58b40c17`, see `docs/BOOT_ATTEMPT.md`) is observed loaded; whether
    gt2_01 executes at `0x8001xxxx` (overwriting SCUS text base) or relocated
    is TBD via SCUS loader disasm (`0x8001146C` `memcpy`, `tools/disasm.py:23`)
-   + `dirty_ram_stats` PC histogram in-race.
+   + `dirty_ram_stats` PC histogram in-race. If tags never fire, apply the
+   runtime offset to the 4 registered PCs.
 2. **Overlay aliasing.** All 6 members claim VRAM `0x80010000`
-   (`docs/OVERLAYS.md:14`) — one resident at a time. Tag callbacks at these
-   PCs must guard on resident identity (e.g. verify prologue word
-   `27BDBFC0`/`27BDDFB8`/`27BDFFF0`/`27BDFFC8` before tagging) or they will
-   mis-tag when another member is resident.
+   (`docs/OVERLAYS.md:14`) — one resident at a time. The prologue-word guard
+   in the plugin handles this, but verify it fires correctly at runtime.
 3. **World-space object culling TBD.** If 16:9 shows pop-in, the culprit is
    a camera-relative object window (Tomba `FUN_80022E44` analogue), not a
    screen funnel. Find via `ws_census` + `gp0_ring` in-race at 4:3, then map
    immediates. No static candidates yet.
-4. **HUD/SPRT path.** Untagged textured rects center-squash by default;
-   `hud_sprt_squash` + per-element tuning comes after tags verify.
+4. **HUD/SPRT path.** `hud_sprt_squash = true` is runtime-active. Per-element
+   tuning (edge anchoring) comes after tags verify.
 
 ## Verification plan (runtime, no regen)
 
 1. In-race 4:3 capture: `ws_census on`, `gp0_ring` dump, `dirty_ram_stats`
    — confirm the 4 PCs execute per-frame in race/drive scenes and record
    `$a0` + `read_word(0x1F800070)` at entry (log-only probe, no behavior
-   change).
+   change). If the PCs observed differ from `0x8001xxxx`, the overlay is
+   relocated — apply offset to plugin registration.
 2. Decode each func tail past the RTPS/RTPT for an SXY-value store to
    `0x1F800070` (`swc2`/`sdc2`/`sw` after `mfc2` SXY). If present, anchor
-   semantics confirmed.
-3. Confirm load address: match executing PCs against `0x8001xxxx` vs
-   relocated copies.
-
-## Implementation sketch (after verification)
-
-- Runtime-only path, no regen: `game.toml [widescreen] sprite_anchor_addr =
-  "0x1F800070"` (runtime global, `psxrecomp/runtime/src/main.cpp:11465`) +
-  mod-owned aspect stays in `src/mods/gt2_widescreen.c`.
-- Tags via `psx_mod_register_function_entry_plugin` at the 4 PCs (fires on
-  both generated code AND interpreter `dirty_ram_interp.c:2877` — the path
-  overlays actually execute on), callback guards prologue word, then calls
-  `psx_ws_sprite_tag(cpu)`. Needs a tiny framework addition: no mod API
-  exposes sprite-tag today (`psxrecomp/runtime/include/mod_plugins.h` has
-  only aspect/rate setters) — either export the tag call for trusted
-  plugins or add `psx_mod_register_sprite_tag_func(addr)`.
-- Cull sites: only if pop-in observed (world-space hunt above).
-- Then: adaptive up to 21:9 + `hud_sprt_squash`, Xvfb screenshot A/B
-  (`docs/screenshots/`) before enabling by default (stays `default_enabled
-  = false` until then).
+   semantics confirmed. If the value at tag-fire is a pointer (e.g.
+   `0x7FFFxxxx`), sprite tags would mis-squash — disable tags until resolved.
+3. Drive-phase A/B: enable/disable widescreen via launcher, compare car/billboard
+   proportions (tagged path should keep them native; stretched path squashes).
 
 ## Repro
 
