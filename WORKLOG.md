@@ -4,6 +4,7 @@ Updated: 2026-09-04
 
 ## Done
 
+- [2026-09-05] gt2_01 static overlay shipped: 60fps locked (was 35), interp 6M→45K insn/s, zero underruns; 135 samples min 59.0, none below 55
 - [2026-09-04] Static overlay codegen unblocked: synth loop was O(n²) string rebuilds (25MB src × 10k iters); shift-tracking fix in psxrecomp/tools/compile_overlays.py, full gt2_01 static compile running
 - [2026-09-03 live] Squash-mode 16:9 (native_wide=false, gte_game_mode=true): killed side-margin flicker; native-wide double-draw at 4x was the slowdown/barely-render. Texture seams at 4x still open
 - [2026-09-03] Widescreen sprite-tag plugin (overlay-aware function_entry_plugin at 4 gt2_01 PCs + prologue guard, hud_sprt_squash, 16:9 active) — runtime verification pending
