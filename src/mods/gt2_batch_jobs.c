@@ -127,7 +127,12 @@ void gt2_gate_note(int kind) {
         s_gate_class++;
     else
         s_gate_accept++;
-    if ((++s_gate_n & 0x1FFF) == 0) {
+    ++s_gate_n;
+    if (s_gate_n == 1) {
+        fprintf(stderr, "[gt2_gate] first fire\n");
+        fflush(stderr);
+    }
+    if ((s_gate_n & 0x1FFF) == 0) {
         extern uint8_t *memory_get_scratchpad_ptr(void);
         extern uint16_t psx_read_half(uint32_t addr);
         uint8_t *sp = memory_get_scratchpad_ptr();
@@ -165,6 +170,7 @@ void gt2_gate_note(int kind) {
                 psx_read_half(0x1F8000A0u), psx_read_half(0x1F8000A2u),
                 s_box_skip_min, s_box_skip_max,
                 s_box_link_min, s_box_link_max);
+        fflush(stderr);
     }
 }
 
@@ -189,6 +195,320 @@ void gt2_gate_code(uint32_t v, int skipped) {
             s_box_link_min = bx;
         if (bx > s_box_link_max)
             s_box_link_max = bx;
+    }
+}
+
+/* FuncB profiler (patch_overlay_prof.py): CPS-safe counters ONLY — no
+ * control-flow changes, no early returns, so none of the P2 CPS hazards
+ * apply. Fresh-entry calls + per-object LOD near/far outcomes. Printed
+ * periodically when PSX_PROFLOG=1. Run with PSX_GATELOG=1 as well to get
+ * objs/call (gate_objs = sum of the 4 cull outcomes). Zero cost when off
+ * (single static branch per site after first call). */
+/* FuncB profiler (patch_overlay_prof.py): CPS-safe counters ONLY — no
+ * control-flow changes, no early returns, so none of the P2 CPS hazards
+ * apply. Fresh-entry calls + per-object LOD near/far outcomes. Printed
+ * periodically when PSX_PROFLOG=1. Run with PSX_GATELOG=1 as well to get
+ * objs/call (gate_objs = sum of the 4 cull outcomes). Zero cost when off
+ * (single static branch per site after first call).
+ *
+ * Diagnostics v2: every dump is fflush'd (SIGTERM kills otherwise eat
+ * block-buffered stderr), the first call dumps immediately (a <512-call
+ * function would otherwise print nothing), and a 10s sampler thread reports
+ * the static-dispatch hit/miss ledger even if funcB never fires. */
+static uint64_t s_prof_calls, s_prof_near, s_prof_far, s_prof_parent;
+static int s_prof_init, s_prof_on;
+
+extern void psx_overlay_static_get_stats(uint64_t *checks, uint64_t *hits,
+                                         uint64_t *variant_misses,
+                                         uint64_t *address_misses);
+extern void overlay_loader_get_counters(uint32_t *loads,
+                                        uint32_t *invalidations,
+                                        uint32_t *unregistered,
+                                        uint64_t *disp_native,
+                                        uint64_t *disp_interp,
+                                        uint64_t *stale_blocked,
+                                        uint32_t *last_write_pc,
+                                        uint32_t *last_write_addr,
+                                        uint32_t *last_write_size,
+                                        int *regions,
+                                        uint32_t *revalidations);
+
+/* Static-dispatch hit histogram (patch_overlay_prof.py hit sites in
+ * psx_overlay_dispatch): which overlay functions actually serve calls.
+ * Open-addressed addr->count, sampler-thread reads race benignly
+ * (diagnostic only). Declared here: gt2_prof_dump (below) prints it. */
+#define GT2_SHOT_SLOTS 256
+static uint32_t s_shot_addr[GT2_SHOT_SLOTS];
+static uint64_t s_shot_cnt[GT2_SHOT_SLOTS];
+
+static void gt2_prof_dump(const char *why) {
+    uint64_t objs = s_gate_bypass + s_gate_reject + s_gate_class +
+                    s_gate_accept;
+    uint64_t checks = 0, hits = 0, vmiss = 0, amiss = 0;
+    uint64_t dnat = 0, dint = 0;
+    psx_overlay_static_get_stats(&checks, &hits, &vmiss, &amiss);
+    overlay_loader_get_counters(NULL, NULL, NULL, &dnat, &dint, NULL,
+                                NULL, NULL, NULL, NULL, NULL);
+    fprintf(stderr,
+            "[gt2_prof] %s calls=%llu near=%llu far=%llu parent=%llu "
+            "gate_objs=%llu static_checks=%llu static_hits=%llu "
+            "static_vmiss=%llu static_amiss=%llu "
+            "ov_dnat=%llu ov_dint=%llu\n",
+            why,
+            (unsigned long long)s_prof_calls,
+            (unsigned long long)s_prof_near,
+            (unsigned long long)s_prof_far,
+            (unsigned long long)s_prof_parent,
+            (unsigned long long)objs,
+            (unsigned long long)checks, (unsigned long long)hits,
+            (unsigned long long)vmiss, (unsigned long long)amiss,
+            (unsigned long long)dnat, (unsigned long long)dint);
+    /* Top-6 hitting static addresses (cumulative; diff ticks for rates). */
+    {
+        int picked[6] = {-1, -1, -1, -1, -1, -1};
+        for (int k = 0; k < 6; k++) {
+            uint64_t best = 0;
+            for (int i = 0; i < GT2_SHOT_SLOTS; i++) {
+                int seen = 0;
+                for (int j = 0; j < k; j++)
+                    if (picked[j] == i) {
+                        seen = 1;
+                        break;
+                    }
+                if (!seen && s_shot_cnt[i] > best) {
+                    best = s_shot_cnt[i];
+                    picked[k] = i;
+                }
+            }
+            if (picked[k] < 0 || best == 0)
+                break;
+        }
+        fprintf(stderr, "[gt2_phot]");
+        for (int k = 0; k < 6 && picked[k] >= 0; k++)
+            fprintf(stderr, " %08x:%llu",
+                    s_shot_addr[picked[k]],
+                    (unsigned long long)s_shot_cnt[picked[k]]);
+        fprintf(stderr, "\n");
+    }
+    /* Full table every 6th dump (sampler ticks 10s -> 60s cadence): offline
+     * join with static function sizes for a cost proxy. */
+    {
+        static unsigned s_dump_n;
+        if (++s_dump_n % 6 == 0) {
+            for (int i = 0; i < GT2_SHOT_SLOTS; i++) {
+                if (s_shot_addr[i])
+                    fprintf(stderr, "[gt2_shot] %08x %llu\n",
+                            s_shot_addr[i],
+                            (unsigned long long)s_shot_cnt[i]);
+            }
+        }
+    }
+    fflush(stderr);
+}
+
+#ifdef __linux__
+#include <pthread.h>
+#include <unistd.h>
+#include <signal.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <link.h>
+static pid_t s_main_tid;
+#define GT2_SPROF_DEPTH 8
+static unsigned s_sprof_hz;
+#define GT2_SPHOT_SLOTS 512
+static uintptr_t s_sphot_addr[GT2_SPHOT_SLOTS];
+static uint64_t s_sphot_cnt[GT2_SPHOT_SLOTS];
+
+/* SIGPROF wall... virtual-time sampler (phase_hot substitute for
+ * PSX_NO_DEBUG_TOOLS builds where TCP 4370 is compiled out). Handler
+ * records raw PCs only; symbolization happens offline via the exe-base
+ * line + addr2line. backtrace() in-handler is recap-safe in practice
+ * (unwind tables are read-only); the dump path never runs in-handler. */
+static void gt2_sprof_handler(int sig) {
+    (void)sig;
+    /* Main emu thread only: the sampler thread blocks SIGPROF (below),
+     * but SDL-spawned threads don't — drop anything not on main so the
+     * profile attributes the emulation/render/pacer thread. */
+    if (gettid() != s_main_tid)
+        return;
+    void *tmp[GT2_SPROF_DEPTH];
+    int d = backtrace(tmp, GT2_SPROF_DEPTH);
+    for (int i = 2; i < d; i++) { /* skip handler + trampoline frames */
+        uintptr_t pc = (uintptr_t)tmp[i];
+        uint32_t h = ((pc >> 3) * 2654435761u) & (GT2_SPHOT_SLOTS - 1u);
+        for (uint32_t p = 0; p < 16; p++) {
+            uint32_t k = (h + p) & (GT2_SPHOT_SLOTS - 1u);
+            uintptr_t a = s_sphot_addr[k];
+            if (a == pc) {
+                s_sphot_cnt[k]++;
+                break;
+            }
+            if (a == 0) {
+                s_sphot_addr[k] = pc;
+                s_sphot_cnt[k] = 1;
+                break;
+            }
+        }
+    }
+}
+
+static void gt2_sprof_dump(void) {
+    Dl_info info;
+    if (dladdr((const void *)gt2_sprof_dump, &info) && info.dli_fbase)
+        fprintf(stderr, "[gt2_spbase] %p %s\n", info.dli_fbase,
+                info.dli_fname ? info.dli_fname : "?");
+    fprintf(stderr, "[gt2_spot]");
+    /* top-12 by count */
+    int picked[12];
+    for (int k = 0; k < 12; k++)
+        picked[k] = -1;
+    for (int k = 0; k < 12; k++) {
+        uint64_t best = 0;
+        for (int i = 0; i < GT2_SPHOT_SLOTS; i++) {
+            int seen = 0;
+            for (int j = 0; j < k; j++)
+                if (picked[j] == i) {
+                    seen = 1;
+                    break;
+                }
+            if (!seen && s_sphot_cnt[i] > best) {
+                best = s_sphot_cnt[i];
+                picked[k] = i;
+            }
+        }
+        if (picked[k] < 0 || best == 0)
+            break;
+        fprintf(stderr, " %lx:%llu", (unsigned long)s_sphot_addr[picked[k]],
+                (unsigned long long)best);
+    }
+    fprintf(stderr, "\n");
+    fflush(stderr);
+}
+
+static void *gt2_prof_sampler(void *arg) {
+    (void)arg;
+#ifdef __linux__
+    /* Keep ITIMER_PROF off this thread (else it profiles its own fprintf
+     * storm); handler additionally filters by main tid for SDL threads. */
+    {
+        sigset_t b;
+        sigemptyset(&b);
+        sigaddset(&b, SIGPROF);
+        pthread_sigmask(SIG_BLOCK, &b, NULL);
+    }
+#endif
+    for (;;) {
+#ifdef __linux__
+        /* sleep() returns early on SIGPROF (EINTR): loop on the remainder
+         * or the 10s tick spins at timer rate and drowns the log. */
+        {
+            unsigned rem = 10;
+            do {
+                rem = sleep(rem);
+            } while (rem != 0);
+        }
+#else
+        sleep(10);
+#endif
+        if (s_prof_on)
+            gt2_prof_dump("tick");
+        if (s_sprof_hz)
+            gt2_sprof_dump();
+    }
+    return NULL;
+}
+#endif
+
+static void gt2_prof_ensure(void) {
+    if (!s_prof_init) {
+        s_prof_init = 1;
+#ifdef __linux__
+        s_main_tid = gettid(); /* constructor/hook context == main thread */
+#endif
+        const char *e = getenv("PSX_PROFLOG");
+        s_prof_on = (e && e[0] && e[0] != '0') ? 1 : 0;
+        e = getenv("PSX_SPROF_HZ");
+        if (e && e[0])
+            s_sprof_hz = (unsigned)strtoul(e, NULL, 10);
+#ifdef __linux__
+        if (s_prof_on) {
+            pthread_t t;
+            pthread_attr_t a;
+            pthread_attr_init(&a);
+            pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED);
+            if (pthread_create(&t, &a, gt2_prof_sampler, NULL) == 0)
+                fprintf(stderr, "[gt2_prof] sampler on (10s)\n");
+            pthread_attr_destroy(&a);
+            fflush(stderr);
+        }
+        if (s_sprof_hz > 0 && s_sprof_hz <= 1000) {
+            struct sigaction sa;
+            memset(&sa, 0, sizeof(sa));
+            sa.sa_handler = gt2_sprof_handler;
+            sigemptyset(&sa.sa_mask);
+            sa.sa_flags = SA_RESTART;
+            if (sigaction(SIGPROF, &sa, NULL) == 0) {
+                struct itimerval it;
+                it.it_interval.tv_sec = 0;
+                it.it_interval.tv_usec = 1000000 / s_sprof_hz;
+                it.it_value = it.it_interval;
+                if (setitimer(ITIMER_PROF, &it, NULL) == 0)
+                    fprintf(stderr, "[gt2_sprof] on @%uHz\n", s_sprof_hz);
+                fflush(stderr);
+            }
+        }
+#endif
+    }
+}
+
+/* Constructor: start the sampler independent of hook reachability. If no
+ * static hook ever fires, the 10s ticks still report the dispatch ledger
+ * (static checks/hits vs loader dnat/dint), which is itself the finding. */
+static void gt2_prof_boot(void) __attribute__((constructor));
+static void gt2_prof_boot(void) {
+    gt2_prof_ensure();
+}
+
+void gt2_prof_note_entry(void) {
+    gt2_prof_ensure();
+    if (!s_prof_on)
+        return;
+    ++s_prof_calls;
+    if (s_prof_calls == 1 || (s_prof_calls & 0x1FF) == 0)
+        gt2_prof_dump("entry");
+}
+
+void gt2_prof_note_near(void) {
+    gt2_prof_ensure();
+    if (!s_prof_on)
+        return;
+    s_prof_near++;
+}
+
+void gt2_prof_note_far(void) {
+    gt2_prof_ensure();
+    if (!s_prof_on)
+        return;
+    s_prof_far++;
+}
+
+void gt2_prof_note_static_hit(uint32_t addr) {
+    if (!s_prof_on)
+        return;
+    uint32_t h = ((addr >> 2) * 2654435761u) & (GT2_SHOT_SLOTS - 1u);
+    for (uint32_t p = 0; p < 16; p++) {
+        uint32_t i = (h + p) & (GT2_SHOT_SLOTS - 1u);
+        uint32_t a = s_shot_addr[i];
+        if (a == addr) {
+            s_shot_cnt[i]++;
+            return;
+        }
+        if (a == 0) {
+            s_shot_addr[i] = addr;
+            s_shot_cnt[i] = 1;
+            return;
+        }
     }
 }
 
@@ -357,6 +677,11 @@ static void gt2_job_fn(void *vctx, unsigned index) {
 
 int gt2_batch_parent_try(CPUState *cpu) {
     gt2_env_init();
+    /* Reachability probe (PROFLOG only, no behavior change): counts static
+     * parent fresh-entries even when batch dispatch itself is off. */
+    gt2_prof_ensure();
+    if (s_prof_on && ++s_prof_parent == 1)
+        gt2_prof_dump("parent-first");
     if (s_reentry_guard)
         return 0;
     if (!s_gt2_on || psx_batch_worker_count() == 0)

@@ -45,3 +45,7 @@ saves/
 .commandcode/
 psx_cps_exit_trace.json
 .scratch/
+
+# Harness artifacts (crash/freeze dumps at repo root)
+psx_crash.txt
+psx_freeze_dump_*.json
