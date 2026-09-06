@@ -1,9 +1,11 @@
 # Worklog — GT2 Hybrid Recompilation
 
-Updated: 2026-09-05
+Updated: 2026-09-06
 
 ## Done
 
+- [2026-09-06] P2 batch-dispatch: PARKED parent-hijack after 10+ build-run cycles. Findings: (1) arena fix real (host ptrs can't flow through guest regs — was the FEE90033 crash); (2) CPS-suspend incompatibility: parent/funcA are CPS state machines, interpreter route expects callee-suspend (CRES_NL_PC), return-1 kills boot deterministically at 9.3M insns — exonerated cycles/IRQ/scratch/GTE/RAM/mailbox one by one, noapply run proves pure control-flow kill; (3) cold-path discovery: parent emits NOTHING in-race (20K calls total=0), 4 funnel entries never fire (census: 1250 untagged polys/frame) — true hot path is funcB's inline RTPS loop. Infra kept (pool/clone/scratch-priv/detach, all env-gated + inert). Next perf step: profile-first on funcB-inline or host-side render thread
+- [2026-09-06] Widescreen right-margin cutoff: GL scissor widened left-only, never right — fixed symmetric (psxrecomp f453519a), built + smoke-tested, pushed; awaiting in-race playtest confirm. Game-side outcode cull (camsetup per-object bounds) remains suspect if cutoff persists
 - [2026-09-05] Fixed 18 root-owned files (src, build artifacts, scratch logs) → bob2142:bob2142
 - [2026-09-05] All 6 overlays static (1305 funcs): boot interp spike gone, steady 45K insn/s = kernel/scheduler territory. Game code fully native; pushed
 - [2026-09-04] Static overlay codegen unblocked: synth loop was O(n²) string rebuilds (25MB src × 10k iters); shift-tracking fix in psxrecomp/tools/compile_overlays.py, full gt2_01 static compile running
