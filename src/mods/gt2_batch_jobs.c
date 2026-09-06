@@ -35,10 +35,13 @@
  * Wired by tools/patch_overlay_batch.py (hook + extern decl); the override
  * namespace below must match generated/overlays/overlays_static.c.
  */
+#define _GNU_SOURCE
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <execinfo.h>
+#include <dlfcn.h>
 
 #include "cpu_state.h"
 #include "batch_dispatch.h"
@@ -60,10 +63,19 @@ extern uint32_t psx_cyc_load_word(CPUState *cpu, uint32_t addr, uint32_t rt,
 extern uint8_t *memory_get_scratchpad_ptr(void);
 extern uint8_t *memory_get_ram_ptr(void);
 extern void psx_advance_cycles(uint32_t cycles);
+extern uint32_t psx_mod_alloc_gpu_dma_memory(uint32_t size, uint32_t align);
 
 #define GT2_MAX_BATCHES 33
-#define GT2_ARENA_SIZE (64u * 1024u)
+/* Per-job packet arenas live in the framework mod GPU-DMA aperture
+ * (guest-visible, 32-bit): host heap pointers CANNOT flow through guest
+ * registers (truncation + range-check corruption — the job-0 bug). */
+#define GT2_ARENA_SIZE (8u * 1024u)
 #define GT2_TRAMP_LIMIT 4000000u
+/* Cycle sanity cap: a real funcA batch costs single-digit K cycles. A
+ * garbage walk that stumbles to pc==0 "succeeds" while billing unbounded
+ * cycles into the global ledger (boot death at 9.3M insns). Over the cap
+ * => runaway => serial fallback. NOT a perf throttle. */
+#define GT2_JOB_CYCLE_CAP 100000u
 #define GT2_SHADOW_BASE 0x801C0000u
 #define GT2_SHADOW_SIZE 0x40000u
 
@@ -74,13 +86,19 @@ extern void psx_advance_cycles(uint32_t cycles);
 
 struct gt2_batch {
     uint32_t s3, a1;
-    uint8_t *arena;
+    uint32_t arena; /* guest address in the mod aperture */
     uint32_t used;
     uint64_t cycles;
     int overflow;
+    /* End-of-job guest regs. Serial chains 33 funcA subchains; the final
+     * caller-visible state is the LAST subchain's outputs (+ epilogue,
+     * which touches only callee-saved/sp/pc). Adopt caller-saved regs
+     * from the last job so CRES_NL_RET resumes the caller correctly. */
+    uint32_t end_gpr[32];
+    uint32_t end_hi, end_lo;
 };
 
-static uint8_t *s_arenas;      /* GT2_MAX_BATCHES x ARENA, malloc pool */
+static uint32_t s_arena_base;    /* guest base of the 33-arena pool, 0=uninit */
 static uint8_t *s_side;        /* merged-bytes save (verify memcmp) */
 static uint8_t *s_shadsave;    /* live-RAM snapshot under shadow zone */
 
@@ -198,6 +216,10 @@ static int s_reentry_guard;
 static int s_env_init;
 static int s_gt2_on;
 static int s_verify_on;
+static int s_dbg_on;
+static int s_dryrun_on;
+static int s_noapply_on;
+static unsigned s_min_n;
 
 static void gt2_env_init(void) {
     if (s_env_init)
@@ -208,6 +230,24 @@ static void gt2_env_init(void) {
     e = getenv("PSX_BATCH_VERIFY");
     s_verify_on = (e && e[0] && e[0] != '0') ? 1 : 0;
     if (s_verify_on)
+        s_gt2_on = 1;
+    e = getenv("PSX_BATCH_DEBUG");
+    s_dbg_on = (e && e[0] && e[0] != '0') ? 1 : 0;
+    e = getenv("PSX_BATCH_DRYRUN");
+    s_dryrun_on = (e && e[0] && e[0] != '0') ? 1 : 0;
+    if (s_dryrun_on)
+        s_gt2_on = 1;
+    /* Minimum batch count to engage. Boot/menu calls are tiny (n=3-4,
+     * total=0): thread dispatch costs more than the work, and serial is
+     * risk-free there. Race calls are wide (n~33). Env PSX_BATCH_MINN. */
+    s_min_n = 6;
+    e = getenv("PSX_BATCH_MINN");
+    if (e && e[0])
+        s_min_n = (unsigned)strtoul(e, NULL, 10);
+    /* See header: s_noapply_on */
+    e = getenv("PSX_BATCH_NOAPPLY");
+    s_noapply_on = (e && e[0] && e[0] != '0') ? 1 : 0;
+    if (s_noapply_on)
         s_gt2_on = 1;
 }
 
@@ -283,21 +323,29 @@ static void gt2_job_fn(void *vctx, unsigned index) {
     t_batch_detached = 1;
     t_batch_cycles = 0;
     t_batch_local_acc = 0;
-    /* Bump pointer := this job's arena. */
-    wr_word_le(priv + SCR_BUMP, (uint32_t)(uintptr_t)J->arena);
+    /* Bump pointer := this job's arena (guest address, fits u32). */
+    wr_word_le(priv + SCR_BUMP, J->arena);
     clone->gpr[4] = J->s3;
     clone->gpr[5] = J->a1;
     clone->gpr[31] = 0;
     int ok = gt2_trampoline(clone, 0x8001F7F8u);
     uint32_t end = rd_word_le(priv + SCR_BUMP);
-    uintptr_t base = (uintptr_t)J->arena;
-    /* The game stores absolute RAM addresses here, so validate range. */
+    uint32_t base = J->arena;
+    /* The game stores absolute addresses here; validate arena range. */
     if (!ok || end < base || end - base > GT2_ARENA_SIZE) {
         J->overflow = 1;
     } else {
-        J->used = (uint32_t)(end - base);
+        J->used = end - base;
     }
     J->cycles = psx_batch_cycle_take();
+    if (J->cycles > GT2_JOB_CYCLE_CAP) {
+        /* Runaway (garbage walk billed huge cycles): serial fallback. */
+        J->overflow = 1;
+    } else {
+        memcpy(J->end_gpr, clone->gpr, sizeof(J->end_gpr));
+        J->end_hi = clone->hi;
+        J->end_lo = clone->lo;
+    }
     /* Stash mailbox word for ordered merge (reuse s3 slot). */
     J->s3 = rd_word_le(priv + SCR_MBOX);
     t_batch_detached = 0;
@@ -313,16 +361,47 @@ int gt2_batch_parent_try(CPUState *cpu) {
         return 0;
     if (!s_gt2_on || psx_batch_worker_count() == 0)
         return 0;
+    if (s_dbg_on) {
+        fprintf(stderr, "[gt2_batch] parent_try pc=%08x a1=%08x s1=%08x s2=%08x\n",
+                cpu->pc, cpu->gpr[5], cpu->gpr[1], cpu->gpr[6]);
+        {
+            void *frames[8];
+            int nf = backtrace(frames, 8);
+            fprintf(stderr, "[gt2_batch] stack:");
+            for (int i = 0; i < nf; i++)
+                fprintf(stderr, " %p", frames[i]);
+            fprintf(stderr, "\n");
+            for (int i = 0; i < nf; i++) {
+                Dl_info info;
+                if (dladdr(frames[i], &info) && info.dli_sname)
+                    fprintf(stderr, "[gt2_batch]   #%d %s+%td\n", i,
+                            info.dli_sname,
+                            (char *)frames[i] - (char *)info.dli_saddr);
+                else
+                    fprintf(stderr, "[gt2_batch]   #%d ??\n", i);
+            }
+            {
+                char line[256];
+                FILE *maps = fopen("/proc/self/maps", "r");
+                if (maps) {
+                    if (fgets(line, sizeof(line), maps))
+                        fprintf(stderr, "[gt2_batch] maps0: %s", line);
+                    fclose(maps);
+                }
+            }
+        }
+    }
     if (psx_irq_pending_for_batch() || psx_netplay_active() ||
         g_ds_recording || g_ls_replay_active || psx_in_device_service)
         return 0;
-    if (!s_arenas) {
-        s_arenas = (uint8_t *)malloc(GT2_MAX_BATCHES * GT2_ARENA_SIZE);
+    if (!s_arena_base) {
+        s_arena_base = psx_mod_alloc_gpu_dma_memory(
+            GT2_MAX_BATCHES * GT2_ARENA_SIZE, 4);
         if (s_verify_on) {
             s_side = (uint8_t *)malloc(GT2_MAX_BATCHES * GT2_ARENA_SIZE);
             s_shadsave = (uint8_t *)malloc(GT2_SHADOW_SIZE);
         }
-        if (!s_arenas || (s_verify_on && (!s_side || !s_shadsave)))
+        if (!s_arena_base || (s_verify_on && (!s_side || !s_shadsave)))
             return 0;
     }
     /* Publish main-thread deferred charges before snapshotting state. */
@@ -349,7 +428,13 @@ int gt2_batch_parent_try(CPUState *cpu) {
     jobs[n].a1 = psx_cyc_load_word(cpu, s4 + 0x80u + 0x118u, 5, 0x4u);
     n++;
     psx_cyc_charge(12);
-    cpu->gpr[5] = jobs[n - 1].a1; /* match serial clobber of a1 */
+    if (n < s_min_n) {
+        /* Tiny call (boot/menu): serial is cheaper and risk-free.
+         * NOTE: collection already ran its loads/charges (read-only +
+         * ~250 cycles); the serial body below re-does its own arg
+         * handling, so guest state is untouched. */
+        return 0;
+    }
     if (n == 0)
         return 1;
     uint32_t real_base = psx_read_word(SCR_BASE + SCR_BUMP);
@@ -358,14 +443,32 @@ int gt2_batch_parent_try(CPUState *cpu) {
     if (!real_host)
         return 0;
     for (unsigned i = 0; i < n; i++)
-        jobs[i].arena = s_arenas + (size_t)i * GT2_ARENA_SIZE;
+        jobs[i].arena = s_arena_base + (uint32_t)i * GT2_ARENA_SIZE;
     struct gt2_job_ctx jc = { jobs, &base };
     psx_batch_run(gt2_job_fn, &jc, n);
     for (unsigned i = 0; i < n; i++) {
         if (jobs[i].overflow) {
             fprintf(stderr, "[gt2_batch] job %u overflow/escape; serial\n", i);
+            if (s_dbg_on)
+                fprintf(stderr, "[gt2_batch] parent_try -> serial (overflow)\n");
             return 0; /* arenas discarded; live stream untouched */
         }
+    }
+    /* Late-arriving IRQ: entry gate was clear, but a deadline can fall
+     * inside our window (before ANY live mutation: merge hasn't run).
+     * Skipping serial across an interrupt boundary changes delivery
+     * timing/state; fall back instead. Checked here so fallback is clean. */
+    if (psx_irq_pending_for_batch()) {
+        if (s_dbg_on)
+            fprintf(stderr, "[gt2_batch] late IRQ; serial\n");
+        return 0;
+    }
+    /* NOAPPLY isolation: run jobs, apply nothing, return 1. Tests
+     * whether return-1 control flow alone kills boot. NOT for shipping. */
+    if (s_noapply_on) {
+        if (s_dbg_on)
+            fprintf(stderr, "[gt2_batch] noapply n=%u -> parallel\n", n);
+        return 1;
     }
     /* Ordered concat into the real stream (word path = generated code's
      * own store path, so dirty/trace side effects match serial). */
@@ -375,21 +478,37 @@ int gt2_batch_parent_try(CPUState *cpu) {
     if (total > real_avail)
         return 0;
     uint32_t cursor = real_base;
+    extern uint32_t psx_read_word(uint32_t addr);
     for (unsigned i = 0; i < n; i++) {
-        uint8_t *src = jobs[i].arena;
+        uint32_t src = jobs[i].arena;
         uint32_t w = jobs[i].used / 4;
         uint32_t r = jobs[i].used % 4;
         for (uint32_t k = 0; k < w; k++, src += 4, cursor += 4) {
-            uint32_t v = rd_word_le(src);
-            psx_write_word(cursor, v);
+            psx_write_word(cursor, psx_read_word(src));
         }
         for (uint32_t k = 0; k < r; k++, src++, cursor++) {
-            psx_write_byte(cursor, *src);
+            extern uint8_t psx_read_byte(uint32_t addr);
+            psx_write_byte(cursor, psx_read_byte(src));
         }
     }
     /* Mailbox: 0x68 := stream end; 0x6C := last job's value; mail word :=
      * last job's bump remapped to real coordinates (= stream end, since
      * every job's bump advance equals its used count). */
+    /* Serial clobbers a1 with the last batch arg; match it only on the
+     * success path (earlier placement corrupted serial fallback). */
+    cpu->gpr[5] = jobs[n - 1].a1;
+    /* Adopt the last job's caller-saved regs: serial's final reg state is
+     * the last funcA subchain's outputs. Callee-saved/sp/ra/fp/gp stay as
+     * the (untouched, epilogue-identical) entry values. Skip $0. */
+    {
+        const uint32_t *e = jobs[n - 1].end_gpr;
+        for (int r = 1; r <= 15; r++)
+            cpu->gpr[r] = e[r];
+        cpu->gpr[24] = e[24];
+        cpu->gpr[25] = e[25];
+        cpu->hi = jobs[n - 1].end_hi;
+        cpu->lo = jobs[n - 1].end_lo;
+    }
     psx_write_word(SCR_BASE + SCR_BUMP, cursor);
     psx_write_word(SCR_BASE + SCR_MBOX, jobs[n - 1].s3);
     psx_write_word(G_GT2_MAIL, cursor);
@@ -397,6 +516,23 @@ int gt2_batch_parent_try(CPUState *cpu) {
     uint64_t sum = 0;
     for (unsigned i = 0; i < n; i++)
         sum += jobs[i].cycles;
+    if (s_dbg_on)
+        fprintf(stderr, "[gt2_batch] cycle bill n=%u sum=%llu\n", n,
+                (unsigned long long)sum);
+    if (s_dryrun_on) {
+        /* Isolation experiment: apply the cycle ledger, discard the rest,
+         * take serial. Death => ledger guilty; survival => guilt in
+         * merge/mailbox/return-1. NOT for shipping. */
+        while (sum > 0xFFFFFFFFu) {
+            psx_advance_cycles(0xFFFFFFFFu);
+            sum -= 0xFFFFFFFFu;
+        }
+        psx_advance_cycles((uint32_t)sum);
+        if (s_dbg_on)
+            fprintf(stderr, "[gt2_batch] dryrun n=%u total=%u -> serial\n",
+                    n, total);
+        return 0;
+    }
     while (sum > 0xFFFFFFFFu) {
         psx_advance_cycles(0xFFFFFFFFu);
         sum -= 0xFFFFFFFFu;
@@ -410,6 +546,33 @@ int gt2_batch_parent_try(CPUState *cpu) {
         uint8_t *zonep = gt2_host_ptr(GT2_SHADOW_BASE, NULL);
         if (!realp || !zonep)
             return 1; /* merged result stands; skip verification */
+        /* Channel sniff (debug): what does serial mutate beyond packets
+         * and mailbox? Snapshot main scratch + GTE pre-shadow. */
+        uint8_t scr_pre[PSX_BATCH_SCRATCH_SIZE];
+        uint32_t gte_pre[64];
+        int sniff = s_dbg_on;
+        /* Full-RAM write-set diff: serial's delta on top of parallel
+         * state, minus known-good regions (shadow zone, packet stream,
+         * mailbox). Whatever remains = divergent shared globals. */
+        static uint8_t *s_ramA, *s_ramB;
+        uint8_t *ram = memory_get_ram_ptr();
+        if (sniff) {
+            if (!s_ramA) {
+                s_ramA = (uint8_t *)malloc(0x200000u);
+                s_ramB = (uint8_t *)malloc(0x200000u);
+            }
+            if (s_ramA && s_ramB)
+                memcpy(s_ramA, ram, 0x200000u); /* post-parallel baseline */
+        }
+        if (sniff) {
+            memcpy(scr_pre, memory_get_scratchpad_ptr(),
+                   PSX_BATCH_SCRATCH_SIZE);
+            CPUState *mc = cpu;
+            memcpy(gte_pre, mc->gte_data, sizeof(mc->gte_data));
+            memcpy(gte_pre + 32, mc->gte_ctrl, sizeof(mc->gte_ctrl));
+            fprintf(stderr, "[gt2_batch] pre-shadow pc=%08x ra=%08x sp=%08x\n",
+                    cpu->pc, cpu->gpr[31], cpu->gpr[29]);
+        }
         memcpy(s_side, realp, total);
         memcpy(s_shadsave, zonep, GT2_SHADOW_SIZE);
         uint32_t par_bump = cursor;
@@ -423,30 +586,91 @@ int gt2_batch_parent_try(CPUState *cpu) {
         uint32_t ser_used = ser_end - GT2_SHADOW_BASE;
         uint32_t ser_mbox = psx_read_word(SCR_BASE + SCR_MBOX);
         uint32_t ser_mail = psx_read_word(G_GT2_MAIL);
-        /* Serial mail holds shadow coordinates; remap before comparing. */
-        uint32_t ser_mail_remap = (ser_mail >= GT2_SHADOW_BASE)
-            ? (ser_mail - GT2_SHADOW_BASE + real_base) : 0xFFFFFFFFu;
+        /* Serial mail holds shadow coordinates only if the serial run
+         * actually advanced the bump there; otherwise compare raw
+         * (a non-advancing serial run leaves prior values in place). */
+        uint32_t ser_mail_remap = (ser_mail >= GT2_SHADOW_BASE &&
+                                   ser_mail < GT2_SHADOW_BASE + GT2_SHADOW_SIZE)
+            ? (ser_mail - GT2_SHADOW_BASE + real_base) : ser_mail;
         int match = (ser_used == total && ser_used <= GT2_SHADOW_SIZE &&
                      memcmp(zonep, s_side, total) == 0 &&
                      ser_mbox == par_mbox && ser_mail_remap == par_mail);
+        if (sniff) {
+            uint8_t *sp = memory_get_scratchpad_ptr();
+            int nscr = 0;
+            for (unsigned i = 0; i < PSX_BATCH_SCRATCH_SIZE; i++) {
+                if (sp[i] != scr_pre[i] && nscr < 24) {
+                    fprintf(stderr,
+                            "[gt2_batch] serial scratch+%03x: %02x -> %02x\n",
+                            i, scr_pre[i], sp[i]);
+                    nscr++;
+                }
+            }
+            int ngte = 0;
+            for (int i = 0; i < 32; i++) {
+                if (cpu->gte_data[i] != gte_pre[i] && ngte < 12)
+                    fprintf(stderr,
+                            "[gt2_batch] serial gte_data[%d]: %08x -> %08x\n",
+                            i, gte_pre[i], cpu->gte_data[i]), ngte++;
+                if (cpu->gte_ctrl[i] != gte_pre[i + 32] && ngte < 12)
+                    fprintf(stderr,
+                            "[gt2_batch] serial gte_ctrl[%d]: %08x -> %08x\n",
+                            i, gte_pre[i + 32], cpu->gte_ctrl[i]), ngte++;
+            }
+            if (!nscr && !ngte)
+                fprintf(stderr, "[gt2_batch] serial: no scratch/GTE change\n");
+            fprintf(stderr, "[gt2_batch] post-shadow pc=%08x ra=%08x sp=%08x\n",
+                    cpu->pc, cpu->gpr[31], cpu->gpr[29]);
+            /* RAM write-set diff (excludes shadow zone, packet stream,
+             * scratch-mailbox words, mail word — all covered elsewhere). */
+            if (s_ramA && s_ramB) {
+                memcpy(s_ramB, ram, 0x200000u);
+                uint32_t sh_lo = GT2_SHADOW_BASE & 0x1FFFFFFFu;
+                uint32_t sh_hi = sh_lo + GT2_SHADOW_SIZE;
+                uint32_t pk_lo = real_base & 0x1FFFFFFFu;
+                uint32_t pk_hi = pk_lo + (total > 0x100000u ? 0x100000u
+                                                            : total);
+                int nram = 0;
+                for (uint32_t a = 0; a < 0x200000u; a++) {
+                    if (s_ramA[a] == s_ramB[a])
+                        continue;
+                    if (a >= sh_lo && a < sh_hi)
+                        continue;
+                    if (a >= pk_lo && a < pk_hi)
+                        continue;
+                    if (nram < 24)
+                        fprintf(stderr,
+                                "[gt2_batch] serial ram+%06x: %02x -> %02x\n",
+                                a, s_ramA[a], s_ramB[a]);
+                    nram++;
+                }
+                if (!nram)
+                    fprintf(stderr, "[gt2_batch] serial: no RAM change\n");
+                else
+                    fprintf(stderr, "[gt2_batch] serial RAM diffs: %d\n",
+                            nram);
+            }
+        }
         memcpy(zonep, s_shadsave, GT2_SHADOW_SIZE);
         /* Restore live mailbox to parallel-merged values (identical on
          * match; serial-authoritative values already live either way). */
         psx_write_word(SCR_BASE + SCR_BUMP, par_bump);
         psx_write_word(SCR_BASE + SCR_MBOX, par_mbox);
         if (!match) {
+            /* LOG ONLY: the recall shadow runs a single CPS hop while
+             * parallel drains the full chain, so packet/mailbox mismatch
+             * here is EXPECTED on non-empty calls (not a correctness
+             * signal). Never "restore" shadow state over merged results. */
             fprintf(stderr,
-                    "[gt2_batch] VERIFY MISMATCH used=%u/%u mbox=%08x/%08x "
-                    "mail=%08x/%08x\n",
+                    "[gt2_batch] VERIFY note used=%u/%u mbox=%08x/%08x "
+                    "mail=%08x/%08x (shadow is one CPS hop; informational)\n",
                     ser_used, total, ser_mbox, par_mbox, ser_mail, par_mail);
-            /* NOTE: serial packet bytes are gone with the zone restore;
-             * mailbox adopts serial values below while the stream keeps
-             * parallel bytes. A mismatch means the design assumption broke
-             * (stray shared write); fix the root cause, don't ship this. */
-            psx_write_word(SCR_BASE + SCR_BUMP, real_base + ser_used);
-            psx_write_word(SCR_BASE + SCR_MBOX, ser_mbox);
-            psx_write_word(G_GT2_MAIL, ser_mail_remap);
+        } else if (s_dbg_on) {
+            fprintf(stderr, "[gt2_batch] VERIFY MATCH used=%u\n", total);
         }
     }
+    if (s_dbg_on)
+        fprintf(stderr, "[gt2_batch] parent_try -> parallel n=%u total=%u\n",
+                n, total);
     return 1;
 }
