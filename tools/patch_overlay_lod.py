@@ -50,15 +50,16 @@ def main() -> int:
     src = PATH.read_text()
     changed = 0
     for anchor, old, new in EDITS:
-        if src.count(anchor) < 1:
-            print(f"ANCHOR MISSING: {anchor}")
-            return 1
-        if src.count(old) != 1:
-            print(f"NOT UNIQUE ({src.count(old)}x): {old[:70]}")
-            return 1
         if new in src:
             print(f"already applied: {anchor}")
             continue
+        # Pre-patch state: the old code line must occur exactly once (this
+        # is the real guard; the PC anchor is diagnostic context only —
+        # site 5's anchor lives inside the replaced line itself).
+        if src.count(old) != 1:
+            print(f"DRIFT (old x{src.count(old)}, anchor "
+                  f"{'present' if anchor in src else 'missing'}): {anchor}")
+            return 1
         if check_only:
             print(f"would apply: {anchor}")
             continue

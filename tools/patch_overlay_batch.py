@@ -39,15 +39,15 @@ HOOK_CALL = ("    { extern int gt2_batch_parent_try(CPUState *cpu);\n"
 def main() -> int:
     check_only = "--check" in sys.argv
     src = PATH.read_text()
+    if "gt2_batch_parent_try(cpu)" in src:
+        print("hook already present")
+        return 0
     if src.count(ANCHOR_DECL) < 1:
         print(f"NAMESPACE MOVED (regen?): {ANCHOR_DECL}")
         return 1
     if src.count(ANCHOR_CASE) != 1 or src.count(ANCHOR_CALL) != 1:
         print("ANCHOR NOT UNIQUE")
         return 1
-    if "gt2_batch_parent_try(cpu)" in src:
-        print("hook already present")
-        return 0
     if check_only:
         print("would insert hook (2 sites)")
         return 0
