@@ -20,6 +20,10 @@ target_include_directories(gt2 PRIVATE runtime)
 target_link_libraries(gt2 PRIVATE gt2_runtime m ZLIB::ZLIB)
 target_link_libraries(gt2_runtime PRIVATE ZLIB::ZLIB)
 
+# Native port ("decomp"): clean-room readable C for the host, no recomp.
+# Independent of psxrecomp targets; safe to always configure.
+add_subdirectory(decomp)
+
 # PSXRecomp game runtime - native recompiled GT2 via psxrecomp framework
 # Builds gt2-psxrecomp executable in same repo (optional, requires generated/ present)
 set(PSXRECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/psxrecomp" CACHE PATH "Path to psxrecomp")
