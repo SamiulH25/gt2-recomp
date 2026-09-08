@@ -28,3 +28,7 @@ GT2 filenames: `"BA"` + `"SCUS-94488"` + 8 chars. Title frame:
   end-to-end saving via the game is unproven (see `docs/SAVE_STATUS`).
 - Write path: format + allocate + write + checksums (`gt2_mcd`
   currently parses/reads only).
+- Save state machine entry: SCUS `0x80073978` (400+ insns, dispatches
+  on card status bits through `0x8006D400`/`0x8006ACxx`/`0x8007DAxx`
+  and friends). Card-response-coupled — mapped, not ported; the frame
+  layout falls out once a real save exists to emulate against.

@@ -75,8 +75,14 @@ Four calls, then returns 0:
    `0x8008BD08`, spins until RAM `0x80011DF4` >= 4 (4 vsyncs)
 4. `0x80089F38` CdInit
 5. `0x8007F848` SPU setup (one indirect call via `0x8008BCD8` vectors)
-6. `0x80086CE8(0)` / `0x80086D78` / `0x80086DE8` ? (card/FS family —
-   map next; memcard save path lives here)
+6. `0x80086CE8` / `0x80086D78` / `0x80086DE8` card/FS init: CLOSED as
+   BIOS-trampoline territory, not ported. `0x80086DE8`/`E68` and
+   neighbors are `jr $t2` stubs to the A/B tables (A(`0x70`),
+   A(`0xAB`), B(`0x4F`/`0x4E`/`0x4A`); `0x8008C9xx` callees are the
+   same family); the sequencing around them is card-init. The actual
+   save data path is the `0x80073978` state machine (large, card-
+   response-coupled — see `docs/save_notes.md`), not this init family.
+   No standalone semantics; docs-only.
 7. `0x80087148` PadInitDirect (buffers `0x801F0C98`/`0x801F0CBA`)
 8. `0x8007FE34` GPU setup (BIOS thunks + `0x80080858`/`0x800808C4` +
    indirect; HW-only, no port)
