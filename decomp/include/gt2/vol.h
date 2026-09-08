@@ -64,6 +64,12 @@ gt2_vol_status_t gt2_vol_read(gt2_vol_t *vol, const char *name,
 gt2_vol_status_t gt2_vol_read_path(gt2_vol_t *vol, const char *path,
                                    u8 **data_out, u32 *size_out);
 
+// Raw byte read at an absolute cooked-space image offset (e.g. from
+// gt2_vol_file_range). Used for sector-aligned window loads that do not
+// coincide with exact file ranges (see gt2/asset.h).
+gt2_vol_status_t gt2_vol_pread(const gt2_vol_t *vol, u32 abs_off, void *buf,
+                               u32 len);
+
 typedef void (*gt2_vol_visit_fn)(const char *name, u32 index, void *ctx);
 void gt2_vol_visit_names(const gt2_vol_t *vol, gt2_vol_visit_fn fn, void *ctx);
 

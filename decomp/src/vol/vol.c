@@ -337,6 +337,15 @@ gt2_vol_status_t gt2_vol_read_path(gt2_vol_t *vol, const char *path,
     return GT2_VOL_OK;
 }
 
+gt2_vol_status_t gt2_vol_pread(const gt2_vol_t *vol, u32 abs_off, void *buf,
+                               u32 len) {
+    if (!vol || !buf)
+        return GT2_VOL_ERR_INVAL;
+    if (len > 0 && read_at(vol->cd, abs_off, buf, len) != 0)
+        return GT2_VOL_ERR_IO;
+    return GT2_VOL_OK;
+}
+
 gt2_vol_status_t gt2_vol_list_dir(const gt2_vol_t *vol, const char *path,
                                   gt2_vol_entry_visit_fn fn, void *ctx) {
     if (!vol || !fn)

@@ -1,8 +1,10 @@
 # Worklog — GT2 Hybrid Recompilation
 
-Updated: 2026-09-07
+Updated: 2026-09-08
 
 ## Done
+
+- [2026-09-08] Asset batch loader (`gt2_asset`): task0b1 emulated end-to-end with real CD bytes (28088 steps, no traps) — `/crsmap` stem-hash index (120 entries, first tbl 8156, rol6 hash `0x80083004`), sector-window load of cache slot 6 → tbl 8 `/.crsinfo` (0xFC5 B at VOL+0x9C000, CRS header at window+0), 126-record parse/relocate with all targets in-window and rec0.hash == crsmap[0] (`Autumn Ring…`). Port keeps offsets (= rebased − base, proven equal), linear find (tables unsorted). New `gt2_vol_pread`, `tools/crs_asset.py`, `docs/asset_notes.md`; corrected "6 files" → cache slot 6. 11 tests PASS in `build/`; recomp untouched
 
 - [2026-09-07] VOL tree-walk port (autonomous): unified entry-table model proven (11620 slots @VOL+0xB800; flat hash-dir = table tail; `date` = mastering timestamp, no name-hash exists). New `gt2_vol_stat_path/find_path/list_dir`, `gt2_cd` raw+cooked I/O, `tools/mips_emu.py` (self-tested interpreter that ran the REAL search_vol_dir: 75/75 resident Q2 paths, misses = non-resident slots explained), `tools/vol_walk.py`, `tools/xcheck_paths.py` (C==ref on all 248 Q2 paths, 0 fails). `test_vol` + `test_cd` PASS in `build/`; recomp untouched
 - [2026-09-07] ISO9660 layer (autonomous): task082/task3 emulated end-to-end (ISO resolver + descent worker; task30 = strncasecmp, task083 = CD utils not a loader; records `{len@0,extent@2,size@10,namelen@32,name@33}`). New `gt2_iso` (stat/read, `;1` required, case-insensitive); `gt2_vol` rewired onto `gt2_cd` (raw dumps open directly). Q8 answered (VOL LBA from `GT2.VOL;1` root record). `test_vol` + `test_cd` + `test_iso` PASS in `build/`, xcheck still 0 fails; recomp untouched

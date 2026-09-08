@@ -91,7 +91,7 @@ Four calls, then returns 0:
 ## Task registry (task0b 0x80010868 — 8 boot tasks, in order)| task | addr | role |
 |---|---|---|
 | b0 car_loader | `0x80011AF4` | 6 sub-calls (car pipeline — see `docs/car_notes.md`) |
-| b1 | `0x80011C70` | resolve `/crsmap`, `0x8005D8A0` batch-load 6 files to `0x801E18E0`, relocate table |
+| b1 | `0x80011C70` | resolve `/crsmap`, hash 120 stems (`0x80011B70`), load cache SLOT 6 (= tbl 8 `/.crsinfo`, one 0xFC5-B sector window) to `0x801E18E0` via `0x8005D8A0`, relocate 126 CRS records (ported: `gt2_asset`, `docs/asset_notes.md`; earlier "6 files" notes meant slot 6) |
 | b2 | `0x80011CE4` | memmove-down-16 (`0x80078790`: 0x200 B `0x801E2CF0`→`0x801E2CE0`, emulated) + effect-free `0x800787CC(dst,0xF7,0,1)` (no memory change on AA fill — likely len-0 no-op; arg roles open) |
 | b3 | `0x800104A0` | gather ~189 × 0x52 records at `0x801C98E0` (after an 0xB6 memset) from static tables: byte table at `0x80091570`+, u16 table at `0x800A6ED8`+ (matches record tails `40 78 88 c0 10 f0…`), plus 0x157C/0x1588/0x1594 areas; span 15464 B. Semantics need overlay consumers — not ported |
 | b4 | `0x800107E8` | memset 0x40 at `0x801C98A0` + s16 pair `[-0x40, +0x40]` at `0x800A6F18/1A` (bounds, consumer unknown) |
@@ -99,9 +99,10 @@ Four calls, then returns 0:
 | b6 | `0x8001083C` | clear 0x11 struct at `0x801FF5F0` (+0xFFFF at +0xC) |
 | b7 | `0x8001047C` | count = cache[229]-cache[228]-1 → `0x801C93C4` (ported: `gt2_vol_span`; emulated; boot-RAM reads 0xFFFF/0xFFFF → wraps, real count needs paged-in replay slots) |
 
-Asset primitive: `0x8005D8A0(idx)` = load file pinned at cache slot
-idx via the `0x8005D848` callback reader (a1 = dst). Batch pattern in
-task0b1 is the model for a future `gt2_asset` batch API.
+Asset primitive: `0x8005D8A0(slot, dst)` = load the sector-aligned window
+for the file pinned at `cache[slot]` via the `0x8005D848` window reader
+(`tbl[i]&~0x7FF`, len `(tbl[i+1]&~0x7FF)-tbl[i]`) + `0x8005D7D0` sector
+reader (a1 = dst). Ported as `gt2_asset` (see `docs/asset_notes.md`).
 
 ## Remaining boot callees (closed)
 
