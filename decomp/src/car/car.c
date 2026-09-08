@@ -28,6 +28,22 @@ u32 gt2_namehash(const u8 weights[256], const char *name) {
     return w4 | (w3 << 6) | (w2 << 12) | (w1 << 18) | (w0 << 24);
 }
 
+gt2_car_status_t gt2_weight_init(u8 weights[256], const char *charset) {
+    // Mirrors 0x800116AC over a NUL-terminated charset: slot per char,
+    // uppercase fold for lowercase chars. The game passes the SCUS
+    // string at 0x80091620; any string works the same way.
+    if (!weights || !charset)
+        return GT2_CAR_ERR_INVAL;
+    memset(weights, 0, 256);
+    for (u32 i = 0; charset[i] != '\0'; i++) {
+        u8 c = (u8)charset[i];
+        weights[c] = (u8)(i & 0xFF);
+        if (c >= 0x61 && c <= 0x7A)
+            weights[c - 0x20] = (u8)(i & 0xFF);
+    }
+    return GT2_CAR_OK;
+}
+
 struct collect {
     gt2_vol_entry_t *buf;
     u32 n;

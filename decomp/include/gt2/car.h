@@ -85,4 +85,14 @@ gt2_car_status_t gt2_car_logo_annotate(const gt2_vol_t *vol,
                                        gt2_car_entry_t *tab, u32 count,
                                        u32 *hits_out);
 
+// Build the weight table from a charset string (mirrors the b00
+// sanitizer 0x800116AC): zero-fill, then weights[c] = position index
+// per charset char; lowercase chars additionally set their UPPERCASE
+// slot (case-insensitive hashes: 'a' and 'A' weigh the same). The game
+// reads the 37-char string at SCUS 0x80091620 ("-0123456789abc...xyz");
+// 62 slots end up nonzero (emulation-verified, see docs/car_notes.md).
+// The table doubles as a boot path buffer (0x801EF630), so it must be
+// (re)built before hashing — the port takes it as a parameter instead.
+gt2_car_status_t gt2_weight_init(u8 weights[256], const char *charset);
+
 const char *gt2_car_strerror(gt2_car_status_t st);

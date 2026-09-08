@@ -38,10 +38,17 @@ the idealized model used here).
   entry's `z` halfword; 536 stores incl. 104 overwrites (identity weights).
 - Misses backfilled with the first logo idx (149; 690 backfills); sentinel
   untouched. No separate table exists — the old "hash table" note was wrong.
-- Weight-table hunt (0x801EF630, 256 B): still open. No `lui 0x801e` +
-  `addiu 0xF630` pair and no raw `0x801EF630` word in SCUS or any overlay —
-  writer is overlay pointer-arithmetic or runtime-computed. The port takes
-  weights as a parameter (identity weights in tests, emulation-matched).
+- Weight-table hunt (0x801EF630, 256 B): CLOSED — the writer is the b00
+  sanitizer itself (`0x800116AC`): it builds the table from the 37-char
+  SCUS string at `0x80091620` (`-0123456789abc…xyz`), `weights[c]` =
+  position index, plus an uppercase fold (`weights[c-0x20]`, so `A`/`a`
+  hash the same). 62 slots nonzero, reproduced byte-exact by emulation
+  (`tools/rulecheck` pattern in `test_car.c` via `gt2_weight_init`).
+  The region doubles as a boot path buffer (the sanitizer's dest
+  `0x801EF650-0x20` overlaps it) — weights are only valid after b00,
+  which is exactly when hashing starts. The old "no static writer"
+  note missed it because the writes use computed (`char + base`)
+  addresses, not immediates.
 
 ## carwheel / engine — ported as gt2_car
 

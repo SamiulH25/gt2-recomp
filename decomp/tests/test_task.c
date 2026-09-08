@@ -237,8 +237,8 @@ int main(void) {
             }
             fclose(sf);
             static u8 weights[256];
-            for (int i = 0; i < 256; i++)
-                weights[i] = (u8)(i & 0x3F);
+            gt2_weight_init(weights,
+                            "-0123456789abcdefghijklmnopqrstuvwxyz");
             gt2_boot_state_t *bst = NULL;
             CHECK(gt2_boot_state_create(&bst) == GT2_TASK_OK && bst,
                   "boot create");
@@ -247,8 +247,17 @@ int main(void) {
                 CHECK(gt2_task_boot_run(bst, vol, weights, &gs,
                                         (const char *const *)q2,
                                         nq2) == GT2_TASK_OK, "boot run");
-                CHECK(bst->car_count == 1110 && bst->logo_hits == 536,
+                CHECK(bst->car_count == 1110 && bst->logo_hits == 1336,
                       "boot cars %u/%u", bst->car_count, bst->logo_hits);
+                u32 bsorted = 1;
+                for (u32 i = 1; i < bst->car_count; i++) {
+                    if (bst->cars[i - 1].hash > bst->cars[i].hash) {
+                        bsorted = 0;
+                        break;
+                    }
+                }
+                CHECK(bsorted && bst->cars[0].hash == 0x0B00B21Cu,
+                      "boot sorted");
                 CHECK(bst->cars[0].z == 149 && bst->cars[100].z == 749,
                       "boot z");
                 CHECK(bst->crsmap_count == 120 && bst->crs_count == 126 &&

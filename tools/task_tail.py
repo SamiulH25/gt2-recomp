@@ -29,8 +29,10 @@ TASKS = {
     "b5": 0x8001082C,
     "b6": 0x8001083C,
 }
-SEGS = ((0x800A0000, 0xA0000), (0x801C0000, 0x20000), (0x801D0000, 0x20000),
+SEGS = ((0x800A0000, 0xA0000), (0x801C0000, 0x20000),
         (0x801E0000, 0x20000), (0x801F0000, 0x10000))
+# NOTE: no 0x801D segment — 0x801Dxxxx addresses live in the 0x801C page's
+# upper half; a separate map would shadow reads (caught 2026-09-08).
 
 
 def fresh(scus_raw, iso):

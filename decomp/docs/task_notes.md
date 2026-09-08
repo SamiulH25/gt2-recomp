@@ -61,7 +61,8 @@ page, preloaded CRS window).
 
 Composes every ported step in task0b order on native buffers (b2
 skipped): VOL-init cache -> b0 -> b1 -> b3 -> b4 -> b5 -> b6 -> b7.
-End state on US 1.2 sim (identity weights): 1110 cars (536 logo stores),
-120 crsmap hashes, cache[6] = 8, 126 CRS records (0xFC5 window),
-task_mem patterns, bounds, flag `0x60`, span 0. Tested in
-`test_task.c` (boot-run section).
+End state on US 1.2 sim (true sanitizer weights): 1110 cars (sorted,
+1336 logo stores), 120 crsmap hashes, cache[6] = 8, 126 CRS records
+(0xFC5 window), task_mem patterns, bounds, flag `0x60`, span 0. Tested
+in `test_task.c` (boot-run section). Cross-checked against the full
+emulated boot (`tools/boot_chain.py` BOOTSTATE: identical).

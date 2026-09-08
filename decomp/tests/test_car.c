@@ -80,6 +80,26 @@ int main(void) {
     CHECK(gt2_car_find(NULL, 5, 10) == -1, "null tab");
     CHECK(gt2_car_strerror(GT2_CAR_OK) != NULL, "strerror");
 
+    // Weight table (b00 sanitizer 0x800116AC over the SCUS charset;
+    // emulation-verified byte-exact, see docs/car_notes.md).
+    static const char charset[] = "-0123456789abcdefghijklmnopqrstuvwxyz";
+    static u8 tw[256];
+    CHECK(gt2_weight_init(tw, charset) == GT2_CAR_OK, "weight init");
+    CHECK(tw['-'] == 0 && tw['0'] == 1 && tw['9'] == 10 &&
+          tw['a'] == 11 && tw['z'] == 36 && tw['A'] == 11 &&
+          tw['Z'] == 36 && tw['.'] == 0 && tw[0] == 0, "weight spots");
+    u32 wnz = 0;
+    for (int i = 0; i < 256; i++) {
+        if (tw[i])
+            wnz++;
+    }
+    CHECK(wnz == 62, "weight nonzero=%u", wnz);
+    CHECK(gt2_weight_init(NULL, charset) == GT2_CAR_ERR_INVAL,
+          "weight null");
+    CHECK(gt2_weight_init(tw, NULL) == GT2_CAR_ERR_INVAL,
+          "weight null cs");
+    CHECK(gt2_namehash(tw, "a-a7r.cdo.gz") == 0x0B00B21Cu, "true hash0");
+
     // wheel codec (vectors verified against emulated 0x80011570;
     // maker table "bbbrduenfaozraspyo" as in SCUS rodata).
     static const u8 makers[] = "bbbrduenfaozraspyo";
@@ -152,6 +172,41 @@ int main(void) {
               GT2_CAR_ERR_INVAL, "logo empty");
         CHECK(gt2_car_logo_annotate(vol, NULL, ltab, lcount, NULL) ==
               GT2_CAR_ERR_INVAL, "logo null weights");
+        gt2_vol_close(vol);
+        vol = NULL;
+    }
+
+    // True-weight carobj + logo (game truth: sorted table, 1336 stores).
+    if (gt2_vol_open(iso, &vol) == GT2_VOL_OK) {
+        static gt2_car_entry_t ttab[GT2_CAR_MAX + 1];
+        u32 tcount = 0;
+        CHECK(gt2_car_index_build(vol, "/carobj", tw, ttab,
+                                  GT2_CAR_MAX + 1, &tcount) == GT2_CAR_OK &&
+              tcount == 1110, "true count=%u", tcount);
+        u32 sorted = 1;
+        for (u32 i = 1; i < tcount; i++) {
+            if (ttab[i - 1].hash > ttab[i].hash) {
+                sorted = 0;
+                break;
+            }
+        }
+        CHECK(sorted, "true table sorted");
+        CHECK(ttab[0].hash == 0x0B00B21Cu && ttab[0].index == 3495,
+              "true tab0");
+        u32 thits = 0;
+        CHECK(gt2_car_logo_annotate(vol, tw, ttab, tcount, &thits) ==
+              GT2_CAR_OK && thits == 1336, "true hits=%u", thits);
+        CHECK(ttab[0].z == 149 && ttab[100].z == 749, "true z");
+        u32 tzero = 0, t149 = 0;
+        for (u32 i = 0; i < tcount; i++) {
+            if (ttab[i].z == 0)
+                tzero++;
+            if (ttab[i].z == 149)
+                t149++;
+        }
+        CHECK(tzero == 0 && t149 == 27, "true backfill %u/%u", tzero,
+              t149);
+        CHECK(ttab[1110].z == 0, "true sentinel");
         gt2_vol_close(vol);
         vol = NULL;
     }
