@@ -53,6 +53,17 @@ RAM model: vol_buffer `0x800A97D0` <- VOL slot window, header copy
   `0x358122ce`, `0x3584735f`) — data-rev skew, lookup still resolves them.
 - Targets are course display-name strings (`Autumn Ring`, …).
 
+## Q2 index cache (ported as gt2_q2_cache_build)
+
+- `0x80010228` walks the 248 boot paths (SCUS `0x8009118C`, NUL-ended):
+  miss -> `0xFFFF`, file -> tbl idx, DIR -> first file's tbl idx (one
+  slot past `..`, taken blindly). Emulated whole (`tools/q2_cache.py`,
+  413240 steps): 232 pinned, 16 regional misses; dirs `/bgsobj` (81),
+  `/carwheel` (7964), `/crsobj` (8276), `/engine` (8609) all confirmed.
+- Cache readers in SCUS: the `0x8005D8A0` family (asset loads) and
+  `0x8001047C` (span, slots 228/229 = 11559/11560) — consumer mapping
+  closed for SCUS; overlays may read it (unmapped).
+
 ## Open (not ported)
 
 - Overlay-side CRS consumer (which overlay, linear vs cached lookup).

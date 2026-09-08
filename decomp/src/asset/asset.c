@@ -157,6 +157,45 @@ gt2_asset_status_t gt2_asset_window_cached(const gt2_vol_t *vol,
     return gt2_asset_window(vol, cache[slot], data_out, size_out);
 }
 
+struct first_two {
+    gt2_vol_entry_t e[2];
+    u32 n;
+};
+
+static void first_two_cb(const gt2_vol_entry_t *e, void *ctx) {
+    struct first_two *f = ctx;
+    if (f->n < 2)
+        f->e[f->n++] = *e;
+}
+
+gt2_asset_status_t gt2_q2_cache_build(const gt2_vol_t *vol,
+                                      const char *const *paths, u32 npaths,
+                                      u16 *cache_out) {
+    // Mirrors 0x80010228: resolve each path via the tree walk; miss (or a
+    // NULL path) pins 0xFFFF; files pin their tbl index; dirs pin the
+    // first file's index (one slot past the '..' link, taken blindly).
+    if (!vol || !cache_out || (npaths > 0 && !paths))
+        return GT2_ASSET_ERR_INVAL;
+    for (u32 i = 0; i < npaths; i++) {
+        u16 pin = 0xFFFFu;
+        if (paths[i] && paths[i][0]) {
+            gt2_vol_entry_t e;
+            if (gt2_vol_stat_path(vol, paths[i], &e) == GT2_VOL_OK) {
+                if (e.flags & GT2_VOL_FLAG_DIR) {
+                    struct first_two f = { { { 0 } }, 0 };
+                    if (gt2_vol_list_dir(vol, paths[i], first_two_cb,
+                                         &f) == GT2_VOL_OK && f.n == 2)
+                        pin = (u16)f.e[1].next;
+                } else {
+                    pin = (u16)e.next;
+                }
+            }
+        }
+        cache_out[i] = pin;
+    }
+    return GT2_ASSET_OK;
+}
+
 gt2_asset_status_t gt2_crsinfo_parse(const u8 *data, u32 len,
                                      gt2_crs_rec_t *out, u32 cap,
                                      u32 *count_out) {

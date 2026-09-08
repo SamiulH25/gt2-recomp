@@ -59,6 +59,18 @@ gt2_asset_status_t gt2_asset_window_cached(const gt2_vol_t *vol,
                                            u32 slot, u8 **data_out,
                                            u32 *size_out);
 
+// Build a Q2 index-cache snapshot (mirrors 0x80010228 over `npaths`
+// paths): each path resolves to its data-file (tbl) index; missing paths
+// pin 0xFFFF; directories resolve to their FIRST FILE's index (the game
+// steps one slot past the '..' link and takes that entry blindly).
+// The game's table is the 248 boot paths (SCUS 0x8009118C); the caller
+// supplies the list (test reads it from the SCUS file). One deviation:
+// an out-of-range child slot pins 0xFFFF instead of reading past the
+// table (no US-disc path hits this).
+gt2_asset_status_t gt2_q2_cache_build(const gt2_vol_t *vol,
+                                      const char *const *paths, u32 npaths,
+                                      u16 *cache_out);
+
 #define GT2_CRS_MAGIC "CRS\0"
 #define GT2_CRS_REC_STRIDE 0x18u
 

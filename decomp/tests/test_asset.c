@@ -134,6 +134,77 @@ int main(void) {
     free(win);
     free(win2);
 
+    // Q2 index-cache build (paths from the SCUS pointer table; SKIP if
+    // the SCUS file is absent). Vectors from emulated 0x80010228
+    // (232 pinned, 16 x 0xFFFF regional misses).
+    FILE *sf = fopen("disc/SCUS_944.88", "rb");
+    if (!sf) {
+        printf("SKIP: no disc/SCUS_944.88 for q2 paths\n");
+    } else {
+        char *q2[248];
+        u32 nq2 = 0;
+        u32 ptab[248];
+        fseek(sf, 0x800 + (0x8009118Cu - 0x80010000u), SEEK_SET);
+        int ok = fread(ptab, 4, 248, sf) == 248;
+        for (u32 i = 0; ok && i < 248 && ptab[i] != 0; i++) {
+            char buf[64];
+            u32 at = 0;
+            while (at < sizeof buf - 1) {
+                fseek(sf, 0x800 + (ptab[i] - 0x80010000u) + at, SEEK_SET);
+                if (fread(buf + at, 1, 1, sf) != 1)
+                    break;
+                if (buf[at] == '\0')
+                    break;
+                at++;
+            }
+            buf[at] = '\0';
+            q2[nq2] = malloc(at + 1);
+            CHECK(q2[nq2] != NULL, "oom");
+            if (!q2[nq2])
+                break;
+            memcpy(q2[nq2], buf, at + 1);
+            nq2++;
+        }
+        fclose(sf);
+        CHECK(ok && nq2 == 248, "q2 paths=%u", nq2);
+        if (nq2 == 248) {
+            u16 cache[248];
+            CHECK(gt2_q2_cache_build(vol, (const char *const *)q2, 248,
+                                     cache) == GT2_ASSET_OK, "q2 build");
+            CHECK(cache[0] == 2 && cache[6] == 8 && cache[8] == 14,
+                  "q2 head %u %u %u", cache[0], cache[6], cache[8]);
+            CHECK(cache[70] == 81 && cache[107] == 7964 &&
+                  cache[108] == 8276 && cache[191] == 8609,
+                  "q2 dirs %u %u %u %u", cache[70], cache[107],
+                  cache[108], cache[191]);
+            CHECK(cache[228] == 11559 && cache[229] == 11560,
+                  "q2 span pair %u %u", cache[228], cache[229]);
+            CHECK(cache[77] == 0xFFFFu && cache[213] == 0xFFFFu,
+                  "q2 misses %u %u", cache[77], cache[213]);
+            u32 npin = 0;
+            for (u32 i = 0; i < 248; i++) {
+                if (cache[i] != 0xFFFFu)
+                    npin++;
+            }
+            CHECK(npin == 232, "q2 pinned=%u want 232", npin);
+            // The built cache drives the slot loader end to end.
+            u8 *cwin = NULL;
+            u32 cwlen = 0;
+            CHECK(gt2_asset_window_cached(vol, cache, 248, 6, &cwin,
+                                          &cwlen) == GT2_ASSET_OK &&
+                  cwlen == 0xFC5u && !memcmp(cwin, "CRS", 3),
+                  "q2-driven window");
+            free(cwin);
+        }
+        for (u32 i = 0; i < nq2; i++)
+            free(q2[i]);
+        CHECK(gt2_q2_cache_build(NULL, NULL, 0, NULL) ==
+              GT2_ASSET_ERR_INVAL, "q2 null");
+        u16 one;
+        CHECK(gt2_q2_cache_build(vol, NULL, 0, &one) == GT2_ASSET_OK,
+              "q2 empty");
+    }
+
     // Raw 2352 dump must agree on the window.
     const char *raw = getenv("GT2_RAW_BIN");
     if (!raw || !raw[0])

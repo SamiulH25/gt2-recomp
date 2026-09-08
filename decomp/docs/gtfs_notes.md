@@ -57,9 +57,10 @@ format, not from the assembly.
 
 - **Q2 index cache.** `0x80010228` pins the 248 Q2 paths (SCUS
   `0x8009118C`, strings at `0x8008E024+`) into u16 cache at RAM
-  `0x801E2EF0` (0xFFFF = missing). Emulation-ready; next: which later
-  code reads the cache (e.g. `0x8001047C` reads nearby) — the consumer
-  mapping becomes the asset-loading API.
+  `0x801E2EF0` (0xFFFF = missing). CLOSED: emulated whole (413240
+  steps, 232 pinned / 16 miss; dirs pin first-file idx), ported as
+  `gt2_q2_cache_build`. SCUS readers: the `0x8005D8A0` asset family +
+  `0x8001047C` span (slots 228/229). See `docs/asset_notes.md`.
 - **Q4 Sector I/O.** Done in port (`gt2_cd` + `gt2_vol` on top, raw and
   cooked). Game side (`0x8005D74C` sector math, `0x8005D7D0` LBA base at
   `0x801Dxxxx-0x6C18`, low-level `0x8007AB78`/`0x8007AD20`) mapped but
