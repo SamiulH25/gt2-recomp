@@ -52,6 +52,7 @@ instead of failing, so plain builds never break.
 | sysclock combine | `gt2/sysclock.h` | ✅ emulated (`t0^(t1<<4)^…`); header-only |
 | car index | `gt2/car.h` | ✅ namehash + 1110-entry build + bsearch; wheel/engine tables; full xchecks |
 | asset batch | `gt2/asset.h` | ✅ crs hash + 120-entry crsmap index + sector-window load (cache-slot indirection) + 126-record CRS parse/relocate/lookup; emulated |
+| task tails | `gt2/task.h` | ✅ b3 5-phase init (gather/marks/slots/blocks/tails) + b4/b5/b6; b2 docs-only (CD-kick, HW); emulated |
 | overlay manager | — | mechanics mapped (setjmp/longjmp ctx, save area, gunzip chain); dispatch fill = self-registration |
 | boot/sysinit | `docs/boot_notes.md` | ✅ sequence mapped (entry→main→ovr0_task0 order); inits pending ports |
 

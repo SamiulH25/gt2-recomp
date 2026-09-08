@@ -64,6 +64,11 @@ add_library(gt2_asset STATIC
 target_include_directories(gt2_asset PUBLIC include)
 target_link_libraries(gt2_asset PUBLIC gt2_vol)
 
+add_library(gt2_task STATIC
+  src/task/task.c
+)
+target_include_directories(gt2_task PUBLIC include)
+
 add_executable(test_vol tests/test_vol.c)
 target_link_libraries(test_vol PRIVATE gt2_vol)
 
@@ -94,6 +99,9 @@ target_link_libraries(test_car PRIVATE gt2_car)
 add_executable(test_asset tests/test_asset.c)
 target_link_libraries(test_asset PRIVATE gt2_asset)
 
+add_executable(test_task tests/test_task.c)
+target_link_libraries(test_task PRIVATE gt2_task)
+
 add_executable(car_probe tests/car_probe.c)
 target_link_libraries(car_probe PRIVATE gt2_car)
 
@@ -114,3 +122,4 @@ add_test(NAME boot COMMAND test_boot)
 add_test(NAME car COMMAND test_car)
 add_test(NAME sysclock COMMAND test_sysclock)
 add_test(NAME asset COMMAND test_asset)
+add_test(NAME task COMMAND test_task)
