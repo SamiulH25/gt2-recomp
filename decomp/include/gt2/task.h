@@ -1,10 +1,10 @@
 #pragma once
-// GT2 native port: boot-task tails (task0b's small initializers).
+// GT2 native port: boot-task tails (task0b's small initializers) + the
+// native task0b runner.
 //
-// Behavior reference, all confirmed by emulation (see docs/task_notes.md).
-// Task0b (SCUS 0x80010868) runs 8 tasks; car_loader (b0) lives in
-// gt2/car.h, crsmap/asset (b1) in gt2/asset.h, the span counter (b7) in
-// gt2/vol.h. This module covers the tails:
+// Task0b (SCUS 0x80010868) runs 8 tasks back to back; this module covers
+// the tails (behavior reference confirmed by emulation, see
+// docs/task_notes.md):
 //
 // - b3 gather (0x800104A0 phase 1): memset 0xB6 at base, then 2 records
 //   (stride 0x52 from base+0xA). Each record copies 11 B from each of 4
@@ -28,12 +28,26 @@
 // b2 (0x80011CE4) is NOT ported: after a 3-word descriptor store it kicks
 // a CD read through 0x800787CC/0x8006830C (HW-coupled, traps without the
 // CD driver). Full footprints are in docs/task_notes.md.
+//
+// The runner below executes the whole boot chain in game order on native
+// buffers (b2 skipped, documented): VOL-init cache -> b0 -> b1 -> b3 ->
+// b4 -> b5 -> b6 -> b7. Game RAM addresses are caller buffers; the
+// mapping is documented per field.
 
-#include "gt2/types.h"
+#include "gt2/asset.h"
+#include "gt2/car.h"
+#include "gt2/task.h"
+#include "gt2/vol.h"
 
 typedef enum {
     GT2_TASK_OK = 0,
     GT2_TASK_ERR_INVAL,
+    GT2_TASK_ERR_NO_MEM,
+    GT2_TASK_ERR_IO,
+    GT2_TASK_ERR_NOT_FOUND,
+    GT2_TASK_ERR_NOSPACE,
+    GT2_TASK_ERR_TRUNCATED,
+    GT2_TASK_ERR_BAD_DATA,
 } gt2_task_status_t;
 
 const char *gt2_task_strerror(gt2_task_status_t st);
@@ -76,5 +90,52 @@ gt2_task_status_t gt2_task_b3_tails(u8 *base);
 gt2_task_status_t gt2_task_b4(u8 *dst, s16 *bounds);
 // b5: *cell = 0x60 (game: byte at 0x801C93C3).
 gt2_task_status_t gt2_task_b5(u8 *cell);
-// b6: 0x11 clear at p + 0xFFFF half at +0xC (game: 0x801EF5F0).
+// b6: 12-byte struct at p (game: 0x801EF5F0; holes +3..+7 kept).
 gt2_task_status_t gt2_task_b6(u8 *p);
+
+// --- native task0b runner (0x80010868 order) ---
+// b2 is skipped (CD-kick, HW); everything else runs in game order.
+// Buffer <-> game-RAM map: cars = table at 0x801DF5D0 (+count cell),
+// crsmap = 0x801E33F0, cache = 0x801E2EF0, crs_window = 0x801E18E0 load,
+// task_mem = 0x801C98E0 area (0xC000 B covers the far mark init),
+// b4_area = 0x801C98A0, bounds = static cell 0x800A6F18,
+// flag_cell = byte 0x801C93C3, s6_area = 0x801EF5F0 struct.
+
+#define GT2_BOOT_Q2_MAX 248u
+#define GT2_BOOT_TASK_MEM 0xC000u
+#define GT2_BOOT_CRSMAP_MAX 256u
+#define GT2_BOOT_CRS_MAX 256u
+
+typedef struct {
+    gt2_car_entry_t cars[GT2_CAR_MAX + 1];
+    u32 car_count;
+    u32 logo_hits;
+    u32 crsmap[GT2_BOOT_CRSMAP_MAX];
+    u32 crsmap_count;
+    u32 crsmap_first;
+    u16 cache[GT2_BOOT_Q2_MAX];
+    u8 *crs_window;        // malloc'd by the run (asset window)
+    u32 crs_window_len;
+    gt2_crs_rec_t crs_recs[GT2_BOOT_CRS_MAX];
+    u32 crs_count;
+    u8 task_mem[GT2_BOOT_TASK_MEM];
+    u8 b4_area[0x40];
+    s16 bounds[2];
+    u8 flag_cell;
+    u8 s6_area[0x14];
+    u32 span;              // b7 replay span
+} gt2_boot_state_t;
+
+gt2_task_status_t gt2_boot_state_create(gt2_boot_state_t **out);
+void gt2_boot_state_destroy(gt2_boot_state_t *s);
+
+// Full chain: VOL-init cache -> b0 (index+logo) -> b1 (crsmap+window+
+// parse) -> b3 (gather/marks/slots/blocks/tails) -> b4 -> b5 -> b6 ->
+// b7 (span). `q2paths` (nq2 <= 248) is the boot path list; beyond nq2
+// the cache pins 0xFFFF. Slot 6 must be present (nq2 > 6) for the CRS
+// window load, mirroring task0b1's hardcoded slot.
+gt2_task_status_t gt2_task_boot_run(gt2_boot_state_t *s,
+                                    const gt2_vol_t *vol,
+                                    const u8 weights[256],
+                                    const gt2_task_gather_src_t *gather,
+                                    const char *const *q2paths, u32 nq2);

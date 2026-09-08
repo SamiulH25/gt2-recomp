@@ -4,6 +4,8 @@ Updated: 2026-09-08
 
 ## Done
 
+- [2026-09-08] Native task0b runner (`gt2_task_boot_run`): composes cache → b0 → b1 → b3 → b4 → b5 → b6 → b7 in game order on native buffers (b2 skipped, HW); end state verified (1110 cars, 126 CRS, span 0, all patterns). 12 tests PASS in `build/`; recomp untouched
+
 - [2026-09-08] Q2 index cache (`gt2_q2_cache_build`): 0x80010228 emulated whole (413240 steps) — 248 paths, 232 pinned incl. 4 dir paths (first-file idx), 16 regional 0xFFFF; SCUS consumer scan (sole readers: asset family + span). New `tools/q2_cache.py`. 12 tests PASS in `build/`; recomp untouched
 
 - [2026-09-08] Carlogo annotate (`gt2_car_logo_annotate`): 0x80011820 emulated whole (1673 pairs, 1361 lookups, 536 stores incl. 104 overwrites, 690 backfills to 149) — annotates the carobj `z` field, no separate table (old "hash table" note corrected); name[5] p/q filter; weights injected (writer still open: no `0x801EF630` ref in SCUS/overlays). New `tools/car_logo.py`. 12 tests PASS in `build/`; recomp untouched

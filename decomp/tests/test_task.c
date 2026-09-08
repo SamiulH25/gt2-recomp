@@ -196,8 +196,88 @@ int main(void) {
     CHECK(flag == 1 && base[0xB8] == 0, "big flag");
     free(base);
 
+    // Native task0b runner end to end (needs the ISO too; identity
+    // weights as in test_car). Mirrors the 8-call order minus b2.
+    const char *iso = getenv("GT2_ISO");
+    if (!iso || !iso[0])
+        iso = "/tmp/opencode/gt2.iso";
+    gt2_vol_t *vol = NULL;
+    if (gt2_vol_open(iso, &vol) != GT2_VOL_OK) {
+        printf("SKIP: cannot open '%s' for boot run\n", iso);
+    } else {
+        FILE *sf = fopen("disc/SCUS_944.88", "rb");
+        if (!sf) {
+            printf("SKIP: no SCUS for boot q2 paths\n");
+        } else {
+            char *q2[GT2_BOOT_Q2_MAX];
+            u32 nq2 = 0;
+            u32 ptab[GT2_BOOT_Q2_MAX];
+            fseek(sf, 0x800 + (0x8009118Cu - 0x80010000u), SEEK_SET);
+            int ok = fread(ptab, 4, GT2_BOOT_Q2_MAX, sf) ==
+                     GT2_BOOT_Q2_MAX;
+            for (u32 i = 0; ok && i < GT2_BOOT_Q2_MAX && ptab[i] != 0;
+                 i++) {
+                char buf[64];
+                u32 at = 0;
+                while (at < sizeof buf - 1) {
+                    fseek(sf, 0x800 + (ptab[i] - 0x80010000u) + at,
+                          SEEK_SET);
+                    if (fread(buf + at, 1, 1, sf) != 1)
+                        break;
+                    if (buf[at] == '\0')
+                        break;
+                    at++;
+                }
+                buf[at] = '\0';
+                q2[nq2] = malloc(at + 1);
+                if (!q2[nq2])
+                    break;
+                memcpy(q2[nq2], buf, at + 1);
+                nq2++;
+            }
+            fclose(sf);
+            static u8 weights[256];
+            for (int i = 0; i < 256; i++)
+                weights[i] = (u8)(i & 0x3F);
+            gt2_boot_state_t *bst = NULL;
+            CHECK(gt2_boot_state_create(&bst) == GT2_TASK_OK && bst,
+                  "boot create");
+            if (bst) {
+                memset(bst->task_mem, 0xAA, sizeof bst->task_mem);
+                CHECK(gt2_task_boot_run(bst, vol, weights, &gs,
+                                        (const char *const *)q2,
+                                        nq2) == GT2_TASK_OK, "boot run");
+                CHECK(bst->car_count == 1110 && bst->logo_hits == 536,
+                      "boot cars %u/%u", bst->car_count, bst->logo_hits);
+                CHECK(bst->cars[0].z == 149 && bst->cars[100].z == 749,
+                      "boot z");
+                CHECK(bst->crsmap_count == 120 && bst->crs_count == 126 &&
+                      bst->crs_window_len == 0xFC5u, "boot crs %u/%u/%u",
+                      bst->crsmap_count, bst->crs_count,
+                      bst->crs_window_len);
+                CHECK(bst->cache[6] == 8 && bst->span == 0 &&
+                      bst->flag_cell == 0x60 &&
+                      bst->bounds[0] == -0x40 && bst->bounds[1] == 0x40,
+                      "boot cells");
+                CHECK(bst->task_mem[0] == 1 &&
+                      bst->task_mem[0xB3] == 0xF0,
+                      "boot taskmem");
+                u32 bw;
+                memcpy(&bw, bst->task_mem + 0x3C74 + 0x4014, 4);
+                CHECK(bw == 0x2710u, "boot mark");
+                gt2_boot_state_destroy(bst);
+                gt2_boot_state_destroy(NULL);
+            }
+            for (u32 i = 0; i < nq2; i++)
+                free(q2[i]);
+            CHECK(gt2_task_boot_run(NULL, vol, weights, &gs, NULL, 0) ==
+                  GT2_TASK_ERR_INVAL, "boot null");
+        }
+        gt2_vol_close(vol);
+    }
+
     if (failures == 0)
-        printf("PASS test_task (b3 full + b4/b5/b6 ok)\n");
+        printf("PASS test_task (tasks + boot run ok)\n");
     else
         printf("%d FAILURES\n", failures);
     return failures ? 1 : 0;

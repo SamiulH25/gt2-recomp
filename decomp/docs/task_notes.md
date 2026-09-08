@@ -56,3 +56,12 @@ page, preloaded CRS window).
   buffer at `0x801E2CE0` overlapping the descriptor).
 - Overlay-side consumers of the b3 tables (semantics unknown — bytes
   mirrored exactly, no interpretation guessed).
+
+## Native runner (gt2_task_boot_run)
+
+Composes every ported step in task0b order on native buffers (b2
+skipped): VOL-init cache -> b0 -> b1 -> b3 -> b4 -> b5 -> b6 -> b7.
+End state on US 1.2 sim (identity weights): 1110 cars (536 logo stores),
+120 crsmap hashes, cache[6] = 8, 126 CRS records (0xFC5 window),
+task_mem patterns, bounds, flag `0x60`, span 0. Tested in
+`test_task.c` (boot-run section).

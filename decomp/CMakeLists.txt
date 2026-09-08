@@ -68,6 +68,7 @@ add_library(gt2_task STATIC
   src/task/task.c
 )
 target_include_directories(gt2_task PUBLIC include)
+target_link_libraries(gt2_task PUBLIC gt2_car gt2_asset)
 
 add_executable(test_vol tests/test_vol.c)
 target_link_libraries(test_vol PRIVATE gt2_vol)

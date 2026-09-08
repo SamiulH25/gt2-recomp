@@ -7,12 +7,19 @@
 
 #include "gt2/task.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 const char *gt2_task_strerror(gt2_task_status_t st) {
     switch (st) {
     case GT2_TASK_OK: return "ok";
     case GT2_TASK_ERR_INVAL: return "invalid argument";
+    case GT2_TASK_ERR_NO_MEM: return "out of memory";
+    case GT2_TASK_ERR_IO: return "i/o error";
+    case GT2_TASK_ERR_NOT_FOUND: return "not found";
+    case GT2_TASK_ERR_NOSPACE: return "table full";
+    case GT2_TASK_ERR_TRUNCATED: return "truncated data";
+    case GT2_TASK_ERR_BAD_DATA: return "bad data";
     default: return "unknown";
     }
 }
@@ -184,4 +191,143 @@ gt2_task_status_t gt2_task_b6(u8 *p) {
     put_u16(p + 0xE, 0);
     p[0x10] = 0;
     return GT2_TASK_OK;
+}
+
+static gt2_task_status_t map_car(gt2_car_status_t st) {
+    switch (st) {
+    case GT2_CAR_OK: return GT2_TASK_OK;
+    case GT2_CAR_ERR_INVAL: return GT2_TASK_ERR_INVAL;
+    case GT2_CAR_ERR_NOSPACE: return GT2_TASK_ERR_NOSPACE;
+    case GT2_CAR_ERR_NOT_FOUND: return GT2_TASK_ERR_NOT_FOUND;
+    case GT2_CAR_ERR_TRUNCATED: return GT2_TASK_ERR_TRUNCATED;
+    default: return GT2_TASK_ERR_INVAL;
+    }
+}
+
+static gt2_task_status_t map_asset(gt2_asset_status_t st) {
+    switch (st) {
+    case GT2_ASSET_OK: return GT2_TASK_OK;
+    case GT2_ASSET_ERR_INVAL: return GT2_TASK_ERR_INVAL;
+    case GT2_ASSET_ERR_NO_MEM: return GT2_TASK_ERR_NO_MEM;
+    case GT2_ASSET_ERR_IO: return GT2_TASK_ERR_IO;
+    case GT2_ASSET_ERR_BAD_MAGIC: return GT2_TASK_ERR_BAD_DATA;
+    case GT2_ASSET_ERR_TRUNCATED: return GT2_TASK_ERR_TRUNCATED;
+    case GT2_ASSET_ERR_NOSPACE: return GT2_TASK_ERR_NOSPACE;
+    case GT2_ASSET_ERR_NOT_FOUND: return GT2_TASK_ERR_NOT_FOUND;
+    default: return GT2_TASK_ERR_INVAL;
+    }
+}
+
+static gt2_task_status_t map_vol(gt2_vol_status_t st) {
+    switch (st) {
+    case GT2_VOL_OK: return GT2_TASK_OK;
+    case GT2_VOL_ERR_IO: return GT2_TASK_ERR_IO;
+    case GT2_VOL_ERR_NO_MEM: return GT2_TASK_ERR_NO_MEM;
+    case GT2_VOL_ERR_NOT_FOUND: return GT2_TASK_ERR_NOT_FOUND;
+    case GT2_VOL_ERR_INVAL: return GT2_TASK_ERR_INVAL;
+    case GT2_VOL_ERR_TRUNCATED: return GT2_TASK_ERR_TRUNCATED;
+    default: return GT2_TASK_ERR_INVAL;
+    }
+}
+
+gt2_task_status_t gt2_boot_state_create(gt2_boot_state_t **out) {
+    if (!out)
+        return GT2_TASK_ERR_INVAL;
+    *out = NULL;
+    gt2_boot_state_t *s = calloc(1, sizeof *s);
+    if (!s)
+        return GT2_TASK_ERR_NO_MEM;
+    *out = s;
+    return GT2_TASK_OK;
+}
+
+void gt2_boot_state_destroy(gt2_boot_state_t *s) {
+    if (!s)
+        return;
+    free(s->crs_window);
+    free(s);
+}
+
+gt2_task_status_t gt2_task_boot_run(gt2_boot_state_t *s,
+                                    const gt2_vol_t *vol,
+                                    const u8 weights[256],
+                                    const gt2_task_gather_src_t *gather,
+                                    const char *const *q2paths, u32 nq2) {
+    // One deviation from hardware order: the Q2 cache is a VOL-init
+    // effect (0x800102DC calls 0x80010228 before task0b), so it leads.
+    if (!s || !vol || !weights || !gather || (nq2 > 0 && !q2paths) ||
+        nq2 > GT2_BOOT_Q2_MAX || nq2 <= 6)
+        return GT2_TASK_ERR_INVAL;
+    free(s->crs_window);
+    s->crs_window = NULL;
+    gt2_task_status_t rc;
+    gt2_car_status_t cr;
+    gt2_asset_status_t ar;
+
+    rc = map_asset(gt2_q2_cache_build(vol, q2paths, nq2, s->cache));
+    if (rc != GT2_TASK_OK)
+        return rc;
+    for (u32 i = nq2; i < GT2_BOOT_Q2_MAX; i++)
+        s->cache[i] = 0xFFFFu;
+
+    // b0: car index + logo annotate.
+    cr = gt2_car_index_build(vol, "/carobj", weights, s->cars,
+                             GT2_CAR_MAX + 1, &s->car_count);
+    if (map_car(cr) != GT2_TASK_OK)
+        return map_car(cr);
+    cr = gt2_car_logo_annotate(vol, weights, s->cars, s->car_count,
+                               &s->logo_hits);
+    if (map_car(cr) != GT2_TASK_OK)
+        return map_car(cr);
+
+    // b1: crsmap index + CRS window (cache slot 6) + parse.
+    ar = gt2_crsmap_build(vol, s->crsmap, GT2_BOOT_CRSMAP_MAX,
+                          &s->crsmap_count, &s->crsmap_first);
+    if (map_asset(ar) != GT2_TASK_OK)
+        return map_asset(ar);
+    ar = gt2_asset_window_cached(vol, s->cache, GT2_BOOT_Q2_MAX, 6,
+                                 &s->crs_window, &s->crs_window_len);
+    if (map_asset(ar) != GT2_TASK_OK)
+        return map_asset(ar);
+    ar = gt2_crsinfo_parse(s->crs_window, s->crs_window_len, s->crs_recs,
+                           GT2_BOOT_CRS_MAX, &s->crs_count);
+    if (map_asset(ar) != GT2_TASK_OK)
+        return map_asset(ar);
+
+    // b2 intentionally skipped (CD-kick, HW-coupled; see task_notes.md).
+
+    // b3: all five phases (slots take the parsed CRS count, as the game
+    // reads it from window+6).
+    rc = gt2_task_b3_gather(s->task_mem, gather);
+    if (rc != GT2_TASK_OK)
+        return rc;
+    rc = gt2_task_b3_marks(s->task_mem);
+    if (rc != GT2_TASK_OK)
+        return rc;
+    rc = gt2_task_b3_slots(s->task_mem, s->crs_count);
+    if (rc != GT2_TASK_OK)
+        return rc;
+    rc = gt2_task_b3_blocks(s->task_mem);
+    if (rc != GT2_TASK_OK)
+        return rc;
+    rc = gt2_task_b3_tails(s->task_mem);
+    if (rc != GT2_TASK_OK)
+        return rc;
+
+    // b4/b5/b6.
+    rc = gt2_task_b4(s->b4_area, s->bounds);
+    if (rc != GT2_TASK_OK)
+        return rc;
+    rc = gt2_task_b5(&s->flag_cell);
+    if (rc != GT2_TASK_OK)
+        return rc;
+    rc = gt2_task_b6(s->s6_area);
+    if (rc != GT2_TASK_OK)
+        return rc;
+
+    // b7: replay span (game: cache[229]-cache[228]-1; the vol-span port
+    // is the disc-side equivalent).
+    rc = map_vol(gt2_vol_span(vol, "/replay/scea.000", "/replay/scea.999",
+                              &s->span));
+    return rc;
 }
