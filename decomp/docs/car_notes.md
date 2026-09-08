@@ -28,19 +28,20 @@ the idealized model used here).
   slot order under the real weights — verify once weights are found.
 - Full-table xcheck: C port == emulation on all 1110 entries.
 
-## carlogo (0x80011820) — documented, not ported
+## carlogo (0x80011820) — ported as gt2_car_logo_annotate
 
-- 1673 logo TIMs hashed the same way, but inserted into a HASH TABLE
-  (not flat): `0x8005D950`-style bucket search over the same RAM
-  region, empty buckets backfilled with the dir default. Needs the
-  weight table + bucket-size analysis first.
-- Weight-table hunt (0x801EF630, 256 B): no static writer in SCUS
-  (sole -0x9D0 site is the hash reader itself), none in any overlay
-  via immediate addressing, no 200–512 B VOL file fits (sole
-  candidate tbl[11564] is an `INST` sample blob). Remaining:
-  overlay pointer-arithmetic writes, or runtime-computed weights.
-  The table sits 0x20 past the dispatch-table base — possibly one
-  registration struct written by overlay init.
+- 1673 logo TIMs in 2-slot steps (odd slots hashed, even skipped; end when
+  the second slot carries END), first files at tbl 149, 151, ….
+- Each full name hashed (no extension strip); `name[5]` of `0x70/0x71`
+  (312 `…p…` names, no `q`) skips the lookup, 1361 lookups total.
+- Hit (car bsearch `0x8005D950`) stores the logo tbl idx into the car
+  entry's `z` halfword; 536 stores incl. 104 overwrites (identity weights).
+- Misses backfilled with the first logo idx (149; 690 backfills); sentinel
+  untouched. No separate table exists — the old "hash table" note was wrong.
+- Weight-table hunt (0x801EF630, 256 B): still open. No `lui 0x801e` +
+  `addiu 0xF630` pair and no raw `0x801EF630` word in SCUS or any overlay —
+  writer is overlay pointer-arithmetic or runtime-computed. The port takes
+  weights as a parameter (identity weights in tests, emulation-matched).
 
 ## carwheel / engine — ported as gt2_car
 

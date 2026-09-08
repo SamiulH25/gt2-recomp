@@ -50,7 +50,7 @@ instead of failing, so plain builds never break.
 | memcard images | `gt2/mcd.h` | ✅ parse/read + synthetic save round-trip; formatted-card verified |
 | SPU voices | `gt2/spu.h` | ✅ 24×0x28 init + unlink + wait-idle barrier |
 | sysclock combine | `gt2/sysclock.h` | ✅ emulated (`t0^(t1<<4)^…`); header-only |
-| car index | `gt2/car.h` | ✅ namehash + 1110-entry build + bsearch; wheel/engine tables; full xchecks |
+| car index | `gt2/car.h` | ✅ namehash + 1110-entry build + bsearch + logo z-annotate/backfill; wheel/engine tables; full xchecks |
 | asset batch | `gt2/asset.h` | ✅ crs hash + 120-entry crsmap index + sector-window load (cache-slot indirection) + 126-record CRS parse/relocate/lookup; emulated |
 | task tails | `gt2/task.h` | ✅ b3 5-phase init (gather/marks/slots/blocks/tails) + b4/b5/b6; b2 docs-only (CD-kick, HW); emulated |
 | overlay manager | — | mechanics mapped (setjmp/longjmp ctx, save area, gunzip chain); dispatch fill = self-registration |

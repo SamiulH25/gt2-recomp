@@ -119,6 +119,43 @@ int main(void) {
         vol = NULL;
     }
 
+    // carlogo annotation (needs image; identity weights as above).
+    // Vectors from emulated 0x80011820 over the emulated 0x80011710 table
+    // (1673 pairs, 1361 lookups, 536 stores incl. 104 overwrites, 690
+    // backfills to 149).
+    if (gt2_vol_open(iso, &vol) == GT2_VOL_OK) {
+        static gt2_car_entry_t ltab[GT2_CAR_MAX + 1];
+        u32 lcount = 0;
+        CHECK(gt2_car_index_build(vol, "/carobj", weights, ltab,
+                                  GT2_CAR_MAX + 1, &lcount) == GT2_CAR_OK &&
+              lcount == 1110, "logo carobj count=%u", lcount);
+        u32 hits = 0;
+        CHECK(gt2_car_logo_annotate(vol, weights, ltab, lcount, &hits) ==
+              GT2_CAR_OK && hits == 536, "logo hits=%u", hits);
+        CHECK(ltab[0].z == 149 && ltab[1].z == 149 && ltab[2].z == 149,
+              "logo z head %u %u %u", ltab[0].z, ltab[1].z, ltab[2].z);
+        CHECK(ltab[100].z == 749, "logo z100=%u", ltab[100].z);
+        CHECK(ltab[1109].z == 149, "logo z1109=%u", ltab[1109].z);
+        CHECK(ltab[1110].z == 0, "sentinel z untouched");
+        u32 nzero = 0, n149 = 0;
+        for (u32 i = 0; i < lcount; i++) {
+            if (ltab[i].z == 0)
+                nzero++;
+            if (ltab[i].z == 149)
+                n149++;
+        }
+        CHECK(nzero == 0 && n149 == 690, "logo backfill zero=%u dflt=%u",
+              nzero, n149);
+        CHECK(gt2_car_logo_annotate(vol, weights, NULL, lcount, NULL) ==
+              GT2_CAR_ERR_INVAL, "logo null tab");
+        CHECK(gt2_car_logo_annotate(vol, weights, ltab, 0, NULL) ==
+              GT2_CAR_ERR_INVAL, "logo empty");
+        CHECK(gt2_car_logo_annotate(vol, NULL, ltab, lcount, NULL) ==
+              GT2_CAR_ERR_INVAL, "logo null weights");
+        gt2_vol_close(vol);
+        vol = NULL;
+    }
+
     if (failures == 0)
         printf("PASS test_car (hash+index+find ok)\n");
     else

@@ -70,4 +70,19 @@ u32 gt2_engine_parse(const char *name);
 gt2_car_status_t gt2_engine_build(const gt2_vol_t *vol, u16 *out, u32 cap,
                                   u32 *count_out);
 
+// --- car logos (carlogo_loader 0x80011820) ---
+// Annotates the carobj table's `z` field (NOT a separate table): walks
+// /carlogo in 2-slot steps (odd slots hashed, even skipped; end when the
+// second slot carries END), hashes each full name, binary-searches the car
+// table, and stores the logo's data-file index into the hit's `z`. Names
+// with 0x70/0x71 ('p'/'q') at byte 5 are skipped (312 on US 1.2 sim).
+// Afterwards every still-zero `z` is backfilled with the first logo's
+// index (149 = `.crsinfo`-style dir default; 690 backfills here).
+// `hits_out` counts stores (game keeps no counter). Weights are injected
+// (game: runtime table at 0x801EF630, writer still open — see docs).
+gt2_car_status_t gt2_car_logo_annotate(const gt2_vol_t *vol,
+                                       const u8 weights[256],
+                                       gt2_car_entry_t *tab, u32 count,
+                                       u32 *hits_out);
+
 const char *gt2_car_strerror(gt2_car_status_t st);

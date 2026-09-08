@@ -264,3 +264,66 @@ edone:
     free(listing);
     return rc;
 }
+
+gt2_car_status_t gt2_car_logo_annotate(const gt2_vol_t *vol,
+                                       const u8 weights[256],
+                                       gt2_car_entry_t *tab, u32 count,
+                                       u32 *hits_out) {
+    // Mirrors 0x80011820 over the /carlogo listing (1673 files on US 1.2
+    // sim, consumed in 2-slot steps from the first file).
+    if (!vol || !weights || !tab || count == 0)
+        return GT2_CAR_ERR_INVAL;
+    gt2_vol_entry_t *listing = malloc(12288 * sizeof *listing);
+    if (!listing)
+        return GT2_CAR_ERR_NOSPACE;
+    struct collect c = { listing, 0, 12288 };
+    gt2_vol_status_t st = gt2_vol_list_dir(vol, "/carlogo", collect_cb, &c);
+    if (st != GT2_VOL_OK) {
+        free(listing);
+        return st == GT2_VOL_ERR_NOT_FOUND ? GT2_CAR_ERR_NOT_FOUND
+                                           : GT2_CAR_ERR_INVAL;
+    }
+    u32 nl = c.n;
+    gt2_car_status_t rc = GT2_CAR_OK;
+    u32 hits = 0;
+
+    u32 i = 0;
+    while (i < nl && (listing[i].flags & 3u) == 1u)
+        i++;
+    if (i >= nl) {
+        rc = GT2_CAR_ERR_TRUNCATED;
+        goto ldone;
+    }
+    u16 dflt = (u16)listing[i].next;   // first logo's tbl idx (149)
+    // Pair walk: hash listing[i], end when listing[i+1] carries END.
+    for (; i < nl; i += 2) {
+        if (i + 1 >= nl) {
+            rc = GT2_CAR_ERR_TRUNCATED;   // game would read past the table
+            goto ldone;
+        }
+        // Name filter: skip 0x70/0x71 at byte 5 (game reads entry+0xC).
+        const char *nm = listing[i].name;
+        size_t nn = strlen(nm);
+        if (!(nn > 5 && ((u8)nm[5] == 0x70 || (u8)nm[5] == 0x71))) {
+            u32 h = gt2_namehash(weights, nm);
+            s32 k = gt2_car_find(tab, count, h);
+            if (k >= 0) {
+                tab[k].z = (u16)listing[i].next;
+                hits++;
+            }
+        }
+        if (listing[i + 1].flags & GT2_VOL_FLAG_END)
+            break;
+    }
+    // Backfill: every still-zero z gets the dir default.
+    for (u32 j = 0; j < count; j++) {
+        if (tab[j].z == 0)
+            tab[j].z = dflt;
+    }
+
+ldone:
+    if (hits_out && rc == GT2_CAR_OK)
+        *hits_out = hits;
+    free(listing);
+    return rc;
+}

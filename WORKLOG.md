@@ -4,6 +4,8 @@ Updated: 2026-09-08
 
 ## Done
 
+- [2026-09-08] Carlogo annotate (`gt2_car_logo_annotate`): 0x80011820 emulated whole (1673 pairs, 1361 lookups, 536 stores incl. 104 overwrites, 690 backfills to 149) — annotates the carobj `z` field, no separate table (old "hash table" note corrected); name[5] p/q filter; weights injected (writer still open: no `0x801EF630` ref in SCUS/overlays). New `tools/car_logo.py`. 12 tests PASS in `build/`; recomp untouched
+
 - [2026-09-08] Task tails (`gt2_task`): b3 emulated whole (13115 steps, 0xAA-prefill) — 5 phases at `0x801C98E0` (0xB6 + 2×0x52 gather with file-backed 0x800A page, byte marks + 2 far inits, 126 slot inits, 6×10 block inits, 3 list + 1 big init); b4/b5/b6 proven (72/1/12 B). Two first-draft bugs caught by emulation (b6 over-clear, 0x800A shadowing). b2 corrected to descriptor-store + HW CD-kick (docs-only, not portable). New `tools/task_tail.py`, `docs/task_notes.md`. 12 tests PASS in `build/`; recomp untouched
 
 - [2026-09-08] Asset batch loader (`gt2_asset`): task0b1 emulated end-to-end with real CD bytes (28088 steps, no traps) — `/crsmap` stem-hash index (120 entries, first tbl 8156, rol6 hash `0x80083004`), sector-window load of cache slot 6 → tbl 8 `/.crsinfo` (0xFC5 B at VOL+0x9C000, CRS header at window+0), 126-record parse/relocate with all targets in-window and rec0.hash == crsmap[0] (`Autumn Ring…`). Port keeps offsets (= rebased − base, proven equal), linear find (tables unsorted). New `gt2_vol_pread`, `tools/crs_asset.py`, `docs/asset_notes.md`; corrected "6 files" → cache slot 6. 11 tests PASS in `build/`; recomp untouched
