@@ -230,8 +230,63 @@ static gt2_task_status_t map_vol(gt2_vol_status_t st) {
     }
 }
 
-gt2_task_status_t gt2_boot_state_create(gt2_boot_state_t **out) {
-    if (!out)
+gt2_task_status_t gt2_task_b2_queue(const u16 *q2, u32 nq2,
+                                    const gt2_vol_t *vol,
+                                    u32 lba_cell, u32 *heap_io,
+                                    const u8 *dst16,
+                                    u32 desc[3], gt2_task_b2_req_t *req) {
+    if (!q2 || !vol || !heap_io || !desc || !req)
+        return GT2_TASK_ERR_INVAL;
+    if (GT2_B2_Q2SLOT >= nq2)
+        return GT2_TASK_ERR_NOT_FOUND;
+    u32 idx = q2[GT2_B2_Q2SLOT];
+    // Index 0/1 are table carriers (never transferred); the degenerate
+    // end marker has no valid range. Mirrors the game's blind indexing
+    // only for in-range files (a 0xFFFF miss reads wild RAM on hardware;
+    // the port refuses instead — documented deviation, cf. vol walks).
+    u32 dc = gt2_vol_file_count(vol);
+    if (idx < 2 || idx + 1 >= dc)
+        return GT2_TASK_ERR_NOT_FOUND;
+    u32 start = 0, end = 0;
+    if (gt2_vol_tbl_entry(vol, idx, &start) != GT2_VOL_OK ||
+        gt2_vol_tbl_entry(vol, idx + 1, &end) != GT2_VOL_OK)
+        return GT2_VOL_ERR_IO;
+    if (end < start)
+        return GT2_TASK_ERR_TRUNCATED;
+    u32 tag = *heap_io;
+    u32 w = 0;
+    if (dst16)
+        memcpy(&w, dst16, 4);
+    // Exact kick-tail formula: ([DST+0x10]+0x1F) & -0x10 (16 on zeros).
+    u32 bump = (w + 0x1Fu) & ~0xFu;
+    *heap_io = tag + bump;
+    desc[0] = GT2_B2_DST_ADDR;
+    desc[1] = GT2_B2_DESC_LEN;
+    desc[2] = tag;
+    req->dst = GT2_B2_DST_ADDR;
+    req->desc_len = GT2_B2_DESC_LEN;
+    req->tag = tag;
+    req->tbl_idx = idx;
+    req->lba = lba_cell + (start >> 11);   // mirrors 0x8005D74C
+    req->xfer_len = (end & ~0x7FFu) - start;   // mirrors 0x8005D79C
+    return GT2_TASK_OK;
+}
+
+gt2_task_status_t gt2_task_b2_complete(const gt2_task_b2_req_t *req,
+                                       const u8 *file, u32 file_len,
+                                       u8 *dst) {
+    if (!req || !dst)
+        return GT2_TASK_ERR_INVAL;
+    if (req->xfer_len > file_len)
+        return GT2_TASK_ERR_TRUNCATED;
+    if (file_len > 0 && !file)
+        return GT2_TASK_ERR_INVAL;
+    if (req->xfer_len > 0)
+        memcpy(dst, file, req->xfer_len);
+    return GT2_TASK_OK;
+}
+
+gt2_task_status_t gt2_boot_state_create(gt2_boot_state_t **out) {    if (!out)
         return GT2_TASK_ERR_INVAL;
     *out = NULL;
     gt2_boot_state_t *s = calloc(1, sizeof *s);
@@ -294,7 +349,15 @@ gt2_task_status_t gt2_task_boot_run(gt2_boot_state_t *s,
     if (map_asset(ar) != GT2_TASK_OK)
         return map_asset(ar);
 
-    // b2 intentionally skipped (CD-kick, HW-coupled; see task_notes.md).
+    // b2 queue: sys.ins descriptor + heap bump + pending transfer.
+    // Queued (not completed) here: the deposit range overlaps cache and
+    // header inputs b3..b7 still read, mirroring the async DMA timing.
+    s->b2_heap = GT2_B2_HEAP_INIT;   // SCUS-data init (disc bytes)
+    rc = gt2_task_b2_queue(s->cache, GT2_BOOT_Q2_MAX, vol, GT2_VOL_LBA,
+                           &s->b2_heap, s->b2_deposit + 0x10,
+                           s->b2_desc, &s->b2_req);
+    if (rc != GT2_TASK_OK)
+        return rc;
 
     // b3: all five phases (slots take the parsed CRS count, as the game
     // reads it from window+6).
@@ -329,5 +392,30 @@ gt2_task_status_t gt2_task_boot_run(gt2_boot_state_t *s,
     // is the disc-side equivalent).
     rc = map_vol(gt2_vol_span(vol, "/replay/scea.000", "/replay/scea.999",
                               &s->span));
-    return rc;
+    if (rc != GT2_TASK_OK)
+        return rc;
+
+    // b2 complete: deposit the queued transfer now that b3..b7 are done.
+    {
+        u32 off = 0, size = 0;
+        rc = map_vol(gt2_vol_file_range(vol, s->b2_req.tbl_idx, &off,
+                                        &size));
+        if (rc != GT2_TASK_OK)
+            return rc;
+        if (s->b2_req.xfer_len > GT2_BOOT_B2_DEPOSIT_MAX ||
+            s->b2_req.xfer_len > size)
+            return GT2_TASK_ERR_NOSPACE;
+        u8 *file = malloc(size ? size : 1);
+        if (!file)
+            return GT2_TASK_ERR_NO_MEM;
+        rc = map_vol(gt2_vol_pread(vol, off, file, size));
+        if (rc == GT2_TASK_OK)
+            rc = gt2_task_b2_complete(&s->b2_req, file, size,
+                                      s->b2_deposit);
+        free(file);
+        if (rc != GT2_TASK_OK)
+            return rc;
+        s->b2_deposit_len = s->b2_req.xfer_len;
+    }
+    return GT2_TASK_OK;
 }

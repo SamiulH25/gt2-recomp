@@ -53,7 +53,9 @@ instead of failing, so plain builds never break.
 | sysclock combine | `gt2/sysclock.h` | ✅ emulated (`t0^(t1<<4)^…`); header-only |
 | car index | `gt2/car.h` | ✅ namehash + 1110-entry build + bsearch + logo z-annotate/backfill; wheel/engine tables; full xchecks |
 | asset batch | `gt2/asset.h` | ✅ crs hash + 120-entry crsmap index + Q2 cache build (248 paths) + sector-window load + 126-record CRS parse/relocate/lookup; emulated |
-| task tails | `gt2/task.h` | ✅ b3 5-phase init (gather/marks/slots/blocks/tails) + b4/b5/b6 + native task0b runner (b2 skipped, HW); emulated |
+| task tails | `gt2/task.h` | ✅ b3 5-phase init (gather/marks/slots/blocks/tails) + b4/b5/b6 + native task0b runner (b2 queued/completed); emulated |
+| b2 sys.ins preload | `gt2/task.h` (`b2_queue`/`complete`) | ✅ descriptor + heap bump + queued DMA (LBA/len exact), completed after b7 (async timing); emulated |
+| host backends | `gt2/host.h` | ✅ vsync counter/wait + timer ticks; pad/card/GPU/GTE documented gaps |
 | TIM textures | `gt2/tim.h` | ✅ std TIM parse/walk/decode/encode (12-chain arc_topmenu round-trip, GT-logo decode); multi-gzip join; logo locate (decode open); TXD strings; `tools/tim_dump.py` |
 | OVL repack | `tools/ovl_pack.py` | ✅ byte-identical rebuild; member replace (re-gzip) + verify; 4-aligned members |
 | overlay manager | — | mechanics mapped (setjmp/longjmp ctx, save area, gunzip chain); dispatch fill = self-registration |

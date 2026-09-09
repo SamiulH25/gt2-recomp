@@ -372,8 +372,17 @@ gt2_vol_status_t gt2_vol_read_path(gt2_vol_t *vol, const char *path,
     return GT2_VOL_OK;
 }
 
+gt2_vol_status_t gt2_vol_tbl_entry(const gt2_vol_t *vol, u32 i, u32 *off_out) {
+    if (!vol || !off_out)
+        return GT2_VOL_ERR_INVAL;
+    if (i > vol->data_count)
+        return GT2_VOL_ERR_INVAL;
+    *off_out = vol->tbl[i];
+    return GT2_VOL_OK;
+}
+
 gt2_vol_status_t gt2_vol_pread(const gt2_vol_t *vol, u32 abs_off, void *buf,
-                               u32 len) {
+                                u32 len) {
     if (!vol || !buf)
         return GT2_VOL_ERR_INVAL;
     if (len > 0 && read_abs(vol, abs_off, buf, len) != 0)

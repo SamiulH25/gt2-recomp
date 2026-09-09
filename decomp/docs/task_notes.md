@@ -14,7 +14,7 @@ page, preloaded CRS window).
 | b4 | `0x800107E8` | ok, 78 steps | 0x40 zeroed at `0x801C98A0` + s16 pair at `0x800A6F18` |
 | b5 | `0x8001082C` | ok, 3 steps | `0x60` -> `0x801C93C3` |
 | b6 | `0x8001083C` | ok, 10 steps | 12-byte struct at `0x801EF5F0` |
-| b2 | `0x80011CE4` | descriptor only | 3 words at `0x801E2CE0`; CD-kick skipped (HW) |
+| b2 | `0x80011CE4` | ok + kick, 116 steps | descriptor + heap bump + queued DMA (see below) |
 
 ## b3 phases (all pure; callees take only RAM + memset `0x8008CE30`)
 
@@ -42,25 +42,40 @@ page, preloaded CRS window).
 
 ## Corrections to earlier notes
 
-- b2 is NOT "memmove-down-16 + no-op fill". `0x80078790` stores a
-  3-word descriptor `{src, len, heap-tag}` (no copy); `0x800787CC`
-  dispatches to `0x8006830C` (`neg` + `0x8005D74C/9C` sector math +
-  `0x8007CFDC/0x8007AB14/0x8007D024` CD HW) — a CD-read kick, not
-  portable without the driver. Left docs-only.
+- b2 PORTED (was docs-only): `0x80078790` stores `{0x801E2CF0, 0x200,
+  [0x80092E74]}` (no copy — the old "memmove-down-16" note was wrong);
+  `0x800787CC` indirect-dispatches on a3 (b2 passes 1 → vector
+  `0x8006830C`; note the `neg` first insn — added to `tools/mips_emu.py`,
+  self-test still passes). That vector resolves Q2[247]
+  (`/sound/sys.ins`, double-negated index math), computes
+  `{LBA = 473+(tbl>>11), len = (tbl_next&~0x7FF)-tbl}` (238855/34600
+  observed — an early analysis was off by exactly 20 sectors from bad
+  mental hex; the instrumented run settled it) and queues the async DMA
+  (HW leaves `0x8007CFDC/0x8007AB14/0x8007D024`, completion IRQ/polled).
+  The kick tail bumps the heap `([DST+0x10]+0x1F)&-0x10` (16 on zeros;
+  a `&~0x10` draft of the port got 15 — the test caught it).
+  Port: `gt2_task_b2_queue/complete` (queue after b1, complete after
+  b7 — the deposit range overlaps cache/header inputs b3..b7 read, so
+  the async timing is load-bearing and preserved). Tool:
+  `tools/b2_kick.py` (replayable harness run).
 - b6 is NOT a 0x11 memset: exact 12-byte layout (holes +3..+7 untouched).
   The first port draft over-cleared; prefill emulation caught it.
 
 ## Open
 
-- b2's CD-kick completion (needs the CD driver: heap tag `0x80092E74`,
-  buffer at `0x801E2CE0` overlapping the descriptor).
+- b2's deposit TIMING on hardware (which vsync/IRQs retire the queued
+  DMA before the 0x80060884 SPU consumer parses the 0x200 header) and
+  the exact `0x8007CFDC/0x8007AB14/0x8007D024` driver signatures. The
+  native port preserves the observable order (queue after b1, complete
+  after b7); cycle accuracy is future work.
 - Overlay-side consumers of the b3 tables (semantics unknown — bytes
   mirrored exactly, no interpretation guessed).
 
 ## Native runner (gt2_task_boot_run)
 
-Composes every ported step in task0b order on native buffers (b2
-skipped): VOL-init cache -> b0 -> b1 -> b3 -> b4 -> b5 -> b6 -> b7.
+Composes every ported step in task0b order on native buffers (b2 queued
+after b1, completed after b7): VOL-init cache -> b0 -> b1 -> b3 -> b4 ->
+b5 -> b6 -> b7, then the queued sys.ins deposit.
 End state on US 1.2 sim (true sanitizer weights): 1110 cars (sorted,
 1336 logo stores), 120 crsmap hashes, cache[6] = 8, 126 CRS records
 (0xFC5 window), task_mem patterns, bounds, flag `0x60`, span 0. Tested

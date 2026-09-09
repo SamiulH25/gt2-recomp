@@ -1,8 +1,25 @@
 # Worklog — GT2 Hybrid Recompilation
 
-Updated: 2026-09-09 (Phase D finished)
+Updated: 2026-09-09 (Phase E started)
 
 ## Done
+
+- [2026-09-09] Phase E.1 b2 sys.ins preload (`gt2_task_b2_queue/complete`,
+  `tools/b2_kick.py`, boot_run integration): descriptor
+  `{0x801E2CF0, 0x200, heap}` + bump `([DST+0x10]+0x1F)&-0x10` exact,
+  request `{Q2[247]=/sound/sys.ins → idx 11579, LBA 238855, 34600 B}`
+  verified against instrumented emulation (an early analysis was off by
+  20 sectors from bad mental hex — settled by hooks, not reasoning);
+  queued after b1, completed after b7 (deposit overlaps cache/header
+  inputs, so the async timing is load-bearing and preserved). Consumer
+  0x80060884 parses 0x40/0x7F units (0x200 header). Needed `neg` in
+  `tools/mips_emu.py` (self-test + full boot_chain BOOTSTATE identical).
+  A `&~0x10` draft got heap 4127 vs 4128 — the test caught it.
+- [2026-09-09] Phase E.2 host backends (`gt2/host.h`, `test_host`):
+  vsync counter/wait (spin to >= 4) + timer ticks feeding the ported
+  combine; pad/card/GPU/GTE stay documented gaps (SIO init + BIOS
+  trampolines disassembled to prove HW-coupling). 15 tests PASS;
+  recomp untouched
 
 - [2026-09-09] Phase D finished (overlay RE to evidence limits):
   * D.1 census (committed): 6 member roles + non-uniform entries.
@@ -210,9 +227,8 @@ Updated: 2026-09-09 (Phase D finished)
 
 ## Next
 
-- Phase E start: `gt2_host` (vsync/pad/timer/card→mcd) + b2 CD-kick +
-  overlay-init store hunt (data-flow from `$a0`-table entries) +
-  render-loop OT emission (92 sites).
+- Phase E rest: overlay-init store hunt (data-flow from `$a0`-table
+  entries) + render-loop OT emission (92 sites).
 - Then Phase F: menu/UI flow (unblocks nav + save proof), save system.
 - Carried: PGXP same-frame A/B; 4x-seam check; logo/champtim pixel
   decode + CRS/SEQ semantics (overlay consumers); A.1-nav + A.3-save

@@ -64,6 +64,11 @@ gt2_vol_status_t gt2_vol_read(gt2_vol_t *vol, const char *name,
 gt2_vol_status_t gt2_vol_read_path(gt2_vol_t *vol, const char *path,
                                    u8 **data_out, u32 *size_out);
 
+// Raw offset-table entry tbl[i] (VOL-relative byte offset, 0 <= i <=
+// file_count). Exposes the degenerate final marker as-is (0 on this
+// disc); the game does its own wrapping arithmetic on these values.
+gt2_vol_status_t gt2_vol_tbl_entry(const gt2_vol_t *vol, u32 i, u32 *off_out);
+
 // Raw byte read at an absolute cooked-space image offset (e.g. from
 // gt2_vol_file_range). Used for sector-aligned window loads that do not
 // coincide with exact file ranges (see gt2/asset.h).

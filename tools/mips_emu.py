@@ -158,6 +158,8 @@ class Emu:
             m, ops = "bgezal", ["$zero"] + ops
         elif m == "move":
             m, ops = "addu", [ops[0], ops[1], "$zero"]
+        elif m in ("neg", "negu"):
+            m, ops = "subu", [ops[0], "$zero", ops[1]]
         elif m == "li":
             m, ops = "addiu", [ops[0], "$zero", ops[1]]
         elif m == "nop":

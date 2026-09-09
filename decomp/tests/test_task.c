@@ -197,7 +197,8 @@ int main(void) {
     free(base);
 
     // Native task0b runner end to end (needs the ISO too; identity
-    // weights as in test_car). Mirrors the 8-call order minus b2.
+    // weights as in test_car). Mirrors the 8-call order with b2 queued
+    // after b1 and completed after b7 (async timing).
     const char *iso = getenv("GT2_ISO");
     if (!iso || !iso[0])
         iso = "/tmp/opencode/gt2.iso";
@@ -274,6 +275,45 @@ int main(void) {
                 u32 bw;
                 memcpy(&bw, bst->task_mem + 0x3C74 + 0x4014, 4);
                 CHECK(bw == 0x2710u, "boot mark");
+                // b2: descriptor + heap + queued request, deposit applied.
+                CHECK(bst->b2_desc[0] == 0x801E2CF0u &&
+                      bst->b2_desc[1] == 0x200u &&
+                      bst->b2_desc[2] == 4112u,
+                      "boot b2 desc %08x/%08x/%08x", bst->b2_desc[0],
+                      bst->b2_desc[1], bst->b2_desc[2]);
+                CHECK(bst->b2_heap == 4128u, "boot b2 heap %u",
+                      bst->b2_heap);
+                CHECK(bst->b2_req.tbl_idx == bst->cache[247] &&
+                      bst->b2_req.lba ==
+                          473u + (0x1D1970D8u >> 11) &&
+                      bst->b2_req.xfer_len == 34600u,
+                      "boot b2 req idx=%u lba=%u len=%u",
+                      bst->b2_req.tbl_idx, bst->b2_req.lba,
+                      bst->b2_req.xfer_len);
+                CHECK(bst->b2_deposit_len == 34600u, "boot b2 deposit len");
+                {
+                    u8 *sysins = NULL;
+                    u32 syslen = 0;
+                    gt2_vol_status_t vs = gt2_vol_read_path(
+                        vol, "/sound/sys.ins", &sysins, &syslen);
+                    CHECK(vs == GT2_VOL_OK && syslen == 34600u &&
+                          memcmp(sysins, bst->b2_deposit, 34600) == 0,
+                          "boot b2 deposit == sys.ins");
+                    free(sysins);
+                }
+                // b2 unit edges: missing slot + degenerate index refused.
+                {
+                    u16 q2miss[GT2_BOOT_Q2_MAX];
+                    memcpy(q2miss, bst->cache, sizeof q2miss);
+                    q2miss[247] = 0xFFFFu;
+                    u32 d2[3];
+                    gt2_task_b2_req_t r2;
+                    u32 heap = 4112u;
+                    CHECK(gt2_task_b2_queue(
+                              q2miss, GT2_BOOT_Q2_MAX, vol, 473u, &heap,
+                              NULL, d2, &r2) == GT2_TASK_ERR_NOT_FOUND,
+                          "b2 miss refused");
+                }
                 gt2_boot_state_destroy(bst);
                 gt2_boot_state_destroy(NULL);
             }

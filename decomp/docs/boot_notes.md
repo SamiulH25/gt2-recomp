@@ -98,7 +98,7 @@ Four calls, then returns 0:
 |---|---|---|
 | b0 car_loader | `0x80011AF4` | 6 sub-calls (car pipeline — see `docs/car_notes.md`) |
 | b1 | `0x80011C70` | resolve `/crsmap`, hash 120 stems (`0x80011B70`), load cache SLOT 6 (= tbl 8 `/.crsinfo`, one 0xFC5-B sector window) to `0x801E18E0` via `0x8005D8A0`, relocate 126 CRS records (ported: `gt2_asset`, `docs/asset_notes.md`; earlier "6 files" notes meant slot 6) |
-| b2 | `0x80011CE4` | 3-word CD descriptor store at `0x801E2CE0` + CD-read kick via `0x800787CC`/`0x8006830C` (HW-coupled, docs-only — see `docs/task_notes.md`) |
+| b2 | `0x80011CE4` | sys.ins preload: descriptor `{0x801E2CF0, 0x200, heap}` + heap bump + queued `{LBA 238855, 34600 B}` DMA (ported: `gt2_task_b2_queue/complete`, completed after b7 — async timing preserved; see `docs/task_notes.md`) |
 | b3 | `0x800104A0` | 5-phase init at `0x801C98E0`: 2x0x52 gather, byte marks + 2 inits, CRS-count slot inits, 6x10 block inits, 3 list + 1 big init (ported: `gt2_task`, `docs/task_notes.md`) |
 | b4 | `0x800107E8` | 0x40 clear at `0x801C98A0` + s16 bounds `[-0x40,+0x40]` (ported: `gt2_task_b4`) |
 | b5 | `0x8001082C` | write `0x60` to `0x801C93C3` (ported: `gt2_task_b5`) |
@@ -151,5 +151,7 @@ reader (a1 = dst). Ported as `gt2_asset` (see `docs/asset_notes.md`).
 Port order: PVD/ISO (`gt2_iso` ✅) → VOL (`gt2_vol` ✅) → OVL bytes
 (`gt2_ovl` ✅) → dispatch-table fill (overlay self-registration) →
 SPU voices (`gt2_spu` ✅) → sysclock (`gt2_sysclock.h` ✅) →
-vsync/pad/GPU/GTE HW backends (host SDL: future `gt2_host`) →
-scheduler/task0b → overlay execution (recomp today).
+vsync/pad/GPU/GTE HW backends (host SDL: `gt2_host` — vsync counter +
+timer ticks ported, pad/card/GPU/GTE documented gaps) →
+scheduler/task0b (b2 queued/completed ✅) → overlay execution
+(recomp today).
