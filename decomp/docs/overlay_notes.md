@@ -106,3 +106,45 @@ Notes:
   immediates in gt2_01 (no W+H pair funnel — GPU auto-clip stands).
 - gt2_02's 51 COP2 with zero projection ops: control/status reads
   (mfc2), not 3D — consistent with replay/camera logic, not rendering.
+
+## Dispatch-fill endpoints (Phase D.2, 2026-09-09 — mechanism CLOSED)
+
+Static scan (lui 0x801E/F + addiu/ori forming the target): NO overlay
+code forms `0x801EF610`, but TWO SCUS sites do — both `lui $a0,0x801F`
++ `addiu $a0,$a0,-0x9F0`, i.e. they pass the TABLE POINTER in `$a0`:
+
+- task0a+ (`0x800100CC`): `jal 0x80010000` (overlay init) with
+  `$a0` = table. The overlay fills its own entries (callee side of
+  self-registration).
+- loader (`0x8005DAE4`, after the `0x8007AD90` CD read + SPU
+  `0x80078370/83DC`): same computation, then `(s0<<3)+0xC` stride
+  arithmetic (the `(x<<3)+12` from boot_notes) into the `0x8005DB64`
+  loop — the SCUS side walks/checks the table the overlay filled.
+
+This refines the write-watch verdict ("loader never touches it"): the
+loader only computes and passes the pointer; the STORES execute in
+overlay init code. Still open (Phase E): WHICH overlay instructions
+store (stride `0x14`, validity at +8) — now a bounded data-flow hunt
+from the `$a0`-table entry of each member init.
+
+## Funnel tail (Phase D.3, 2026-09-09 — clip+outcode emission)
+
+`0x8001C17C` from RTPS `@0x8001C1E4` (+4, past the COP2 word capstone
+chokes on): bgez/negu abs-chains on GTE MAC results, halfword screen-XY
+stores into the scratch packet at `$a3` (= entry `sp+0x10`), an outcode
+bitmask accumulated in `$a1` (`ori 2/4/8/0x10/0x20` = trivial-reject
+planes, `$v0` OR-chain, word stores at `0xC/8($a3)`), then `mfc2`
+SXY/SZ reads. So the funnel emits clip flags + outcode per object into
+the scratch packet — the phase-1 gate consumes this (or the
+`0x80020FD8` helper recomputes it). Full 92-site census + OT emission
+chain stays Phase E/F render-loop work.
+
+## Seeds (Phase D.4, 2026-09-09 — no additions)
+
+`seeds/ghidra_funcs.txt` feeds SCUS static codegen (1179 entries,
+complete); overlay codegen uses runtime captures, not seeds — so overlay
+entrypoints (ovr2 `0x80011384`, …) do NOT belong there. No new SCUS
+function was discovered (all static paths already seeded). Criteria for
+any future addition: fire-evidence + prologue + cross-ref; unmet for all
+current candidates (funnels don't fire; hot `80027BBC`-class PCs are CPS
+continuations, not entries).

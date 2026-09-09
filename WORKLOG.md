@@ -1,8 +1,26 @@
 # Worklog — GT2 Hybrid Recompilation
 
-Updated: 2026-09-09 (Phase D started)
+Updated: 2026-09-09 (Phase D finished)
 
 ## Done
+
+- [2026-09-09] Phase D finished (overlay RE to evidence limits):
+  * D.1 census (committed): 6 member roles + non-uniform entries.
+  * D.2 dispatch-fill CLOSED structurally: no overlay code forms
+    `0x801EF610`, but two SCUS sites pass it in `$a0` (task0a→overlay
+    init `jal 0x80010000`; loader post-CD-read + `(s0<<3)+0xC` stride
+    loop) — the overlay fills its own table (callee side). Open residue
+    (Phase E): which overlay instructions store (stride 0x14, valid +8).
+  * D.3 funnel tails: clip+outcode emission into the scratch packet
+    ($a3), outcode bitmask in $a1 (ori 2/4/8/0x10/0x20), then mfc2 SXY.
+    Full 92-site + OT chain stays render-loop work (Phase E/F).
+  * D.4 seeds: no additions (file is SCUS-only by design; overlay uses
+    captures; criteria unmet for all candidates).
+  * D.5 codec entry: still open — no asset strings in ovr2/4/5/6 (paths
+    come from SCUS descriptors), no static table-forming store found;
+    decoder hunt moves to dynamic (write-watch on decode output) or
+    data-flow from member inits in Phase E.
+  14 tests PASS; recomp untouched (widescreen 2-site already rebuilt)
 
 - [2026-09-09] Phase D.1 overlay census + anchor verdict
   (`tools/ovl_census.py`, `decomp/docs/overlay_notes.md`): roles from
@@ -192,13 +210,13 @@ Updated: 2026-09-09 (Phase D started)
 
 ## Next
 
-- Phase D start: overlay member census (roles for gt2_02..06 via GTE
-  census + JAL graph + strings) + render-funnel tail decode past COP2
-  (SXY stores) + libpress gunzip-chain RE (unlocks .cdo.gz/carparam).
-- Then Phase E: `gt2_host` (vsync/pad/timer) + b2 CD-kick.
+- Phase E start: `gt2_host` (vsync/pad/timer/card→mcd) + b2 CD-kick +
+  overlay-init store hunt (data-flow from `$a0`-table entries) +
+  render-loop OT emission (92 sites).
+- Then Phase F: menu/UI flow (unblocks nav + save proof), save system.
 - Carried: PGXP same-frame A/B; 4x-seam check; logo/champtim pixel
-  decode (needs overlay consumers); CRS semantics; SEQ player.
-- Deferred to Phase F menu/UI: A.1-nav (hub→race-entry) + A.3-save proof.
+  decode + CRS/SEQ semantics (overlay consumers); A.1-nav + A.3-save
+  proof (Phase F menu/UI); codec decoder entry (dynamic or data-flow).
 - Perf profile-first (VERDICT, PROVISIONAL — menu-phase data only): automation never reached a real race (all "race" windows were car-select/status screens), so the no-hotspot finding covers menus only. True in-race residency (74BDB962 scene member?) still unmeasured. Navigation to a real race is the critical path; re-run profile AFTER first real race. (Original verdict text kept below for the record: SIGPROF+ledger+BENCH converge on menus — 60fps held, wall ~ guest 25-30 / render 14-36 / pacer rest, no coarse guest hotspot, biggest item SCUS func_80094DC8 59KB/~10% wall. Infra kept env-gated + inert.)
 - Perf: GT2 3D runs interpreted (5-7M interp insns/s); static overlay codegen for gt2_01 is the native-execution fix
 - Texture seams at 4x bilinear (open, both 2D+3D)
