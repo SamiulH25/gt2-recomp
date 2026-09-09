@@ -85,11 +85,38 @@ format, not from the assembly.
 
 - `tools/vol_dump.py` — list/find/extract/tbl/walk/cook from cooked ISO
   **or** raw 2352 `.bin` (auto-detected).
+- `tools/vol_pack.py` — repack VOL with replaced files (independent
+  implementation of `gt2_vol_pack`; zero-rep blob hash-identical to the C
+  build, non-zero runs self-verify). CLI: `--replace NAME=FILE`,
+  `--replace-index N=FILE`, `--report`, `--verify`.
 - `tools/mips_emu.py` — minimal MIPS-I interpreter (capstone decode,
   delay slots, lwl/swr family, BIOS A-table hooks) + self-test.
 - `tools/vol_walk.py` — RAM-model harness: replicates init's memory
   effects, emulates the real vol functions (single path, all Q2, cache).
 - `tools/xcheck_paths.py` — C port vs Python reference on all 248 Q2
   paths (232 resolve incl. ranges, 16 agree NOT_FOUND) + slot sweep.
-- `decomp/tests/test_vol.c`, `test_cd.c` — regression gates; update the
-  expected counts here if another disc revision is ever targeted.
+- `decomp/tests/test_vol.c`, `test_cd.c`, `test_vol_pack.c` — regression
+  gates; update the expected counts here if another disc revision is ever
+  targeted.
+
+## Repack findings (Phase C.1, 2026-09-08)
+
+Probed from the US 1.2 image (VOL extent 488241152 B = ISO record size):
+
+- tbl[] is essentially unaligned (3905/11582 not 4-aligned): files pack
+  tightly, no padding. Round trip is byte-exact.
+- Only one non-monotonic entry: the final marker tbl[11581] = 0, so file
+  11580 (`[0x1D19F800, 0)`) is degenerate with no valid range. Last valid
+  file is 11579 (`[0x1D1970D8, 0x1D19F800)`, 34600 B, slot-referenced).
+  Five empty files at 11559..11563 (all `0x1D0AB800`) — replaceable with
+  data (pure growth, e.g. +3000 B verified).
+- Files 0/1 are table carriers (slot tree straddles file 0's tail and
+  file 1's head; flat dir inside file 1) and are never replaced. The tbl
+  array spans `[0x10, 0x10+4*11582)` = `[0x10, 0xB508)` — its last-32 at
+  `[0xB488, 0xB508)` are part of the array, NOT a second copy (an early
+  analysis mistake, corrected before shipping: no mirroring needed, the
+  stamp covers them).
+- Slots (max file-next 11579) and flat `tbl_idx` name FILES, so resizes
+  need no directory surgery. ISO injection for same-or-smaller blobs is a
+  plain sector overwrite (~113 MB follows the VOL extent, so modest growth
+  has slack — but PVD/dir sizes would need updating; not attempted yet).

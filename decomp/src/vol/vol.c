@@ -35,6 +35,8 @@ typedef struct {
 
 struct gt2_vol {
     gt2_cd_t *cd;       // raw 2352 dump or cooked ISO (auto-detected)
+    const u8 *mem;      // ...or a borrowed extent blob (open_mem); cd NULL
+    u32 mem_size;
     u16 data_count;
     u16 entry_count;
     u32 *tbl;           // data_count+1 offsets from VOL base
@@ -58,69 +60,52 @@ const char *gt2_vol_strerror(gt2_vol_status_t st) {
     }
 }
 
-static int read_at(gt2_cd_t *cd, u32 off, void *buf, u32 len) {
-    return gt2_cd_pread(cd, off, buf, len) == GT2_CD_OK ? 0 : -1;
+static int read_at(const gt2_vol_t *v, u32 off, void *buf, u32 len) {
+    if (v->cd)
+        return gt2_cd_pread(v->cd, GT2_VOL_BASE + off, buf, len) == GT2_CD_OK
+            ? 0 : -1;
+    // Borrowed blob: VOL-base-relative offsets map 1:1.
+    if ((u64)off + (u64)len > (u64)v->mem_size)
+        return -1;
+    if (len > 0)
+        memcpy(buf, v->mem + off, len);
+    return 0;
 }
 
-gt2_vol_status_t gt2_vol_open(const char *image_path, gt2_vol_t **out) {
-    if (!image_path || !out)
-        return GT2_VOL_ERR_INVAL;
-    *out = NULL;
-
-    gt2_cd_t *cd = NULL;
-    if (gt2_cd_open(image_path, &cd) != GT2_CD_OK)
-        return GT2_VOL_ERR_IO;
-
+// Parse header + offset table + name dir + slot tree from the attached
+// backend (cd or mem). On failure the half-built handle is closed.
+static gt2_vol_status_t parse_tables(gt2_vol_t *v) {
     u8 hdr[16];
-    if (read_at(cd, GT2_VOL_BASE, hdr, sizeof hdr) != 0) {
-        gt2_cd_close(cd);
+    if (read_at(v, 0, hdr, sizeof hdr) != 0)
         return GT2_VOL_ERR_IO;
-    }
     u32 magic;
     memcpy(&magic, hdr, 4);
-    if (magic != GT2_VOL_MAGIC) {
-        gt2_cd_close(cd);
+    if (magic != GT2_VOL_MAGIC)
         return GT2_VOL_ERR_BAD_MAGIC;
-    }
     u16 data_count, entry_count;
     memcpy(&data_count, hdr + 8, 2);
     memcpy(&entry_count, hdr + 10, 2);
-    if (data_count == 0) {
-        gt2_cd_close(cd);
+    if (data_count == 0)
         return GT2_VOL_ERR_TRUNCATED;
-    }
-
-    gt2_vol_t *v = calloc(1, sizeof *v);
-    if (!v) {
-        gt2_cd_close(cd);
-        return GT2_VOL_ERR_NO_MEM;
-    }
-    v->cd = cd;
     v->data_count = data_count;
     v->entry_count = entry_count;
 
     // Offset table: data_count+1 entries so every file has an end marker.
     v->tbl = malloc(((size_t)data_count + 1) * sizeof *v->tbl);
-    if (!v->tbl) {
-        gt2_vol_close(v);
+    if (!v->tbl)
         return GT2_VOL_ERR_NO_MEM;
-    }
-    if (read_at(cd, GT2_VOL_BASE + 0x10, v->tbl,
-                ((size_t)data_count + 1) * sizeof *v->tbl) != 0) {
-        gt2_vol_close(v);
+    if (read_at(v, 0x10, v->tbl,
+                ((size_t)data_count + 1) * sizeof *v->tbl) != 0)
         return GT2_VOL_ERR_TRUNCATED;
-    }
 
     // Name directory: fixed 32 B records until first all-zero record.
     gt2_vol_name_t *names = calloc(GT2_VOL_DIR_CAP, sizeof *names);
-    if (!names) {
-        gt2_vol_close(v);
+    if (!names)
         return GT2_VOL_ERR_NO_MEM;
-    }
     u32 count = 0;
     for (u32 i = 0; i < GT2_VOL_DIR_CAP; i++) {
         u8 rec[GT2_VOL_DIR_REC];
-        if (read_at(cd, GT2_VOL_BASE + GT2_VOL_DIR_OFF + i * GT2_VOL_DIR_REC,
+        if (read_at(v, GT2_VOL_DIR_OFF + i * GT2_VOL_DIR_REC,
                     rec, sizeof rec) != 0)
             break;
         int allzero = 1;
@@ -151,13 +136,11 @@ gt2_vol_status_t gt2_vol_open(const char *image_path, gt2_vol_t **out) {
 
     // Unified entry table: entry_count 32-byte slots at VOL+0xB800.
     gt2_vol_slot_t *slots = calloc(entry_count ? entry_count : 1, sizeof *slots);
-    if (!slots) {
-        gt2_vol_close(v);
+    if (!slots)
         return GT2_VOL_ERR_NO_MEM;
-    }
     for (u16 i = 0; i < entry_count; i++) {
         u8 rec[GT2_VOL_SLOT_REC];
-        if (read_at(cd, GT2_VOL_BASE + GT2_VOL_SLOT_OFF + (u32)i * GT2_VOL_SLOT_REC,
+        if (read_at(v, GT2_VOL_SLOT_OFF + (u32)i * GT2_VOL_SLOT_REC,
                     rec, sizeof rec) != 0)
             break;  // short image: keep what parsed, walks bounds-check
         memcpy(&slots[v->slot_count].date, rec, 4);
@@ -169,6 +152,48 @@ gt2_vol_status_t gt2_vol_open(const char *image_path, gt2_vol_t **out) {
     }
     v->slots = slots;
 
+    return GT2_VOL_OK;
+}
+
+gt2_vol_status_t gt2_vol_open(const char *image_path, gt2_vol_t **out) {
+    if (!image_path || !out)
+        return GT2_VOL_ERR_INVAL;
+    *out = NULL;
+
+    gt2_cd_t *cd = NULL;
+    if (gt2_cd_open(image_path, &cd) != GT2_CD_OK)
+        return GT2_VOL_ERR_IO;
+
+    gt2_vol_t *v = calloc(1, sizeof *v);
+    if (!v) {
+        gt2_cd_close(cd);
+        return GT2_VOL_ERR_NO_MEM;
+    }
+    v->cd = cd;
+    gt2_vol_status_t st = parse_tables(v);
+    if (st != GT2_VOL_OK) {
+        gt2_vol_close(v);
+        return st;
+    }
+    *out = v;
+    return GT2_VOL_OK;
+}
+
+gt2_vol_status_t gt2_vol_open_mem(const u8 *blob, u32 size, gt2_vol_t **out) {
+    if (!blob || size < 16 || !out)
+        return GT2_VOL_ERR_INVAL;
+    *out = NULL;
+
+    gt2_vol_t *v = calloc(1, sizeof *v);
+    if (!v)
+        return GT2_VOL_ERR_NO_MEM;
+    v->mem = blob;
+    v->mem_size = size;
+    gt2_vol_status_t st = parse_tables(v);
+    if (st != GT2_VOL_OK) {
+        gt2_vol_close(v);
+        return st;
+    }
     *out = v;
     return GT2_VOL_OK;
 }
@@ -222,6 +247,16 @@ gt2_vol_status_t gt2_vol_find(const gt2_vol_t *vol, const char *name,
     return GT2_VOL_ERR_NOT_FOUND;
 }
 
+// Public absolute-offset read (gt2_vol_pread + whole-file readers, which
+// resolve through gt2_vol_find/file_range and therefore carry the
+// GT2_VOL_BASE bias). Rejects offsets below the VOL base instead of
+// wrapping.
+static int read_abs(const gt2_vol_t *v, u32 abs_off, void *buf, u32 len) {
+    if (abs_off < GT2_VOL_BASE)
+        return -1;
+    return read_at(v, abs_off - GT2_VOL_BASE, buf, len);
+}
+
 gt2_vol_status_t gt2_vol_read(gt2_vol_t *vol, const char *name,
                               u8 **data_out, u32 *size_out) {
     if (!vol || !name || !data_out)
@@ -234,7 +269,7 @@ gt2_vol_status_t gt2_vol_read(gt2_vol_t *vol, const char *name,
     u8 *buf = malloc(size ? size : 1);
     if (!buf)
         return GT2_VOL_ERR_NO_MEM;
-    if (size > 0 && read_at(vol->cd, off, buf, size) != 0) {
+    if (size > 0 && read_abs(vol, off, buf, size) != 0) {
         free(buf);
         return GT2_VOL_ERR_IO;
     }
@@ -327,7 +362,7 @@ gt2_vol_status_t gt2_vol_read_path(gt2_vol_t *vol, const char *path,
     u8 *buf = malloc(size ? size : 1);
     if (!buf)
         return GT2_VOL_ERR_NO_MEM;
-    if (size > 0 && read_at(vol->cd, off, buf, size) != 0) {
+    if (size > 0 && read_abs(vol, off, buf, size) != 0) {
         free(buf);
         return GT2_VOL_ERR_IO;
     }
@@ -341,7 +376,7 @@ gt2_vol_status_t gt2_vol_pread(const gt2_vol_t *vol, u32 abs_off, void *buf,
                                u32 len) {
     if (!vol || !buf)
         return GT2_VOL_ERR_INVAL;
-    if (len > 0 && read_at(vol->cd, abs_off, buf, len) != 0)
+    if (len > 0 && read_abs(vol, abs_off, buf, len) != 0)
         return GT2_VOL_ERR_IO;
     return GT2_VOL_OK;
 }
@@ -389,5 +424,160 @@ gt2_vol_status_t gt2_vol_span(const gt2_vol_t *vol, const char *first,
         return st;
     if (count_out)
         *count_out = b.next - a.next - 1;   // u32 wrap matches subu
+    return GT2_VOL_OK;
+}
+
+static int rep_index_cmp(const void *a, const void *b) {
+    u32 ia = ((const gt2_vol_replacement_t *)a)->index;
+    u32 ib = ((const gt2_vol_replacement_t *)b)->index;
+    return (ia > ib) - (ia < ib);
+}
+
+gt2_vol_status_t gt2_vol_pack(const char *image_path,
+                              const gt2_vol_replacement_t *reps, u32 rep_count,
+                              u8 **blob_out, u32 *blob_size_out) {
+    if (!image_path || !blob_out)
+        return GT2_VOL_ERR_INVAL;
+    *blob_out = NULL;
+    if (rep_count > 0 && !reps)
+        return GT2_VOL_ERR_INVAL;
+
+    gt2_vol_t *vol = NULL;
+    gt2_vol_status_t st = gt2_vol_open(image_path, &vol);
+    if (st != GT2_VOL_OK)
+        return st;
+    u32 dc = vol->data_count;
+    if (dc < 4) {
+        gt2_vol_close(vol);
+        return GT2_VOL_ERR_TRUNCATED;
+    }
+    u32 last_valid = dc - 2;   // file dc-1 is the degenerate end marker
+
+    // Validate + sort replacements (reject duplicates explicitly).
+    gt2_vol_replacement_t *sorted = NULL;
+    if (rep_count > 0) {
+        sorted = malloc((size_t)rep_count * sizeof *sorted);
+        if (!sorted) {
+            gt2_vol_close(vol);
+            return GT2_VOL_ERR_NO_MEM;
+        }
+        memcpy(sorted, reps, (size_t)rep_count * sizeof *sorted);
+        for (u32 i = 0; i < rep_count; i++) {
+            u32 idx = sorted[i].index;
+            if (idx < 2 || idx > last_valid ||
+                (sorted[i].size > 0 && !sorted[i].data) ||
+                sorted[i].size > GT2_VOL_PACK_MAX_FILE) {
+                free(sorted);
+                gt2_vol_close(vol);
+                return GT2_VOL_ERR_INVAL;
+            }
+        }
+        qsort(sorted, rep_count, sizeof *sorted, rep_index_cmp);
+        for (u32 i = 1; i < rep_count; i++) {
+            if (sorted[i].index == sorted[i - 1].index) {
+                free(sorted);
+                gt2_vol_close(vol);
+                return GT2_VOL_ERR_INVAL;
+            }
+        }
+    }
+
+    // New offset table: files 0/1 (table carriers) keep their offsets.
+    u32 *ntbl = malloc(((size_t)dc + 1) * sizeof *ntbl);
+    if (!ntbl) {
+        free(sorted);
+        gt2_vol_close(vol);
+        return GT2_VOL_ERR_NO_MEM;
+    }
+    memcpy(ntbl, vol->tbl, ((size_t)dc + 1) * sizeof *ntbl);
+    u32 cursor = vol->tbl[2];
+    u32 ri = 0;
+    for (u32 i = 2; i <= last_valid; i++) {
+        ntbl[i] = cursor;
+        if (ri < rep_count && sorted[ri].index == i) {
+            cursor += sorted[ri].size;
+            ri++;
+        } else {
+            u32 start = vol->tbl[i], end = vol->tbl[i + 1];
+            if (end < start) {
+                // Only the degenerate marker may go backwards, and it is
+                // excluded from this loop; anything else is corruption.
+                free(ntbl);
+                free(sorted);
+                gt2_vol_close(vol);
+                return GT2_VOL_ERR_TRUNCATED;
+            }
+            cursor += end - start;
+        }
+    }
+    ntbl[dc - 1] = cursor;         // end of the last valid file
+    ntbl[dc] = vol->tbl[dc];       // preserve the degenerate end marker
+    u32 blob_size = cursor;
+
+    u8 *blob = malloc(blob_size ? blob_size : 1);
+    if (!blob) {
+        free(ntbl);
+        free(sorted);
+        gt2_vol_close(vol);
+        return GT2_VOL_ERR_NO_MEM;
+    }
+    // Prefix [0, tbl[2]) holds the header, the offset table, and the full
+    // bodies of files 0/1 (including the embedded slot tree + flat dir).
+    if (read_at(vol, 0, blob, vol->tbl[2]) != 0) {
+        free(blob);
+        free(ntbl);
+        free(sorted);
+        gt2_vol_close(vol);
+        return GT2_VOL_ERR_IO;
+    }
+    // Stamped rebuilt offsets over the copied prefix (same position).
+    // NOTE: the tbl array spans [0x10, 0x10+4*(dc+1)) = [0x10, 0xB508),
+    // so the last 32 entries live at [0xB488, 0xB508) — there is no
+    // separate copy to mirror; the stamp covers them. Assert the layout
+    // (fail closed if a future image moves the table).
+    memcpy(blob + 0x10, ntbl, ((size_t)dc + 1) * sizeof *ntbl);
+    if (dc + 1 >= 32) {
+        u32 expect_last = vol->tbl[dc];   // degenerate marker spot-check
+        u32 got_last = 0;
+        memcpy(&got_last, blob + 0x10 + (size_t)dc * 4, 4);
+        if (got_last != expect_last) {
+            free(blob);
+            free(ntbl);
+            free(sorted);
+            gt2_vol_close(vol);
+            return GT2_VOL_ERR_INVAL;
+        }
+    }
+    // File bodies from index 2 on.
+    u8 *dst = blob + vol->tbl[2];
+    ri = 0;
+    for (u32 i = 2; i <= last_valid; i++) {
+        if (ri < rep_count && sorted[ri].index == i) {
+            if (sorted[ri].size > 0)
+                memcpy(dst, sorted[ri].data, sorted[ri].size);
+            dst += sorted[ri].size;
+            ri++;
+        } else {
+            u32 start = vol->tbl[i], end = vol->tbl[i + 1];
+            u32 len = end - start;   // non-decreasing here (checked above)
+            if (len > 0) {
+                if (read_at(vol, start, dst, len) != 0) {
+                    free(blob);
+                    free(ntbl);
+                    free(sorted);
+                    gt2_vol_close(vol);
+                    return GT2_VOL_ERR_IO;
+                }
+                dst += len;
+            }
+        }
+    }
+
+    free(ntbl);
+    free(sorted);
+    gt2_vol_close(vol);
+    *blob_out = blob;
+    if (blob_size_out)
+        *blob_size_out = blob_size;
     return GT2_VOL_OK;
 }

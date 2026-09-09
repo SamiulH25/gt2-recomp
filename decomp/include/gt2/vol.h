@@ -73,6 +73,17 @@ gt2_vol_status_t gt2_vol_pread(const gt2_vol_t *vol, u32 abs_off, void *buf,
 typedef void (*gt2_vol_visit_fn)(const char *name, u32 index, void *ctx);
 void gt2_vol_visit_names(const gt2_vol_t *vol, gt2_vol_visit_fn fn, void *ctx);
 
+// Open a VOL extent blob from memory (same layout as the on-disc extent
+// starting at the GTFS magic, e.g. produced by gt2_vol_pack). The handle
+// borrows `blob` (must outlive the handle); tables are still parsed and
+// owned. Size must cover the header + offset table at minimum.
+//
+// NOTE: gt2_vol_file_range/find return offsets with the GT2_VOL_BASE bias
+// (image-absolute, matching the cd backend). For mem handles subtract
+// GT2_VOL_BASE to index the blob. gt2_vol_pread hides this (it takes the
+// same absolute form for both backends).
+gt2_vol_status_t gt2_vol_open_mem(const u8 *blob, u32 size, gt2_vol_t **out);
+
 const char *gt2_vol_strerror(gt2_vol_status_t st);
 
 // --- Hierarchical entry table (tree walk) ------------------------------
@@ -118,6 +129,42 @@ gt2_vol_status_t gt2_vol_find_path(const gt2_vol_t *vol, const char *path,
 // missing paths are NOT_FOUND.
 gt2_vol_status_t gt2_vol_span(const gt2_vol_t *vol, const char *first,
                               const char *last, u32 *count_out);
+
+// --- Repack (VOL extent rebuild) --------------------------------------
+// On-disc constraints (US 1.2 sim, verified by probing the image):
+//   - tbl[] holds plain byte offsets, essentially unaligned (3905/11582
+//     are not even 4-aligned), so files pack tightly with no padding.
+//   - Files 0 ([0x2FC,0xBB80)) and 1 ([0xBB80,0x66B22)) carry the tables:
+//     the slot tree overlaps file 0's tail and file 1's head, and the
+//     flat dir sits inside file 1. File 1 is preserved byte-exact; file 0
+//     keeps everything except the embedded offset array itself, which
+//     spans [0x10, 0x10+4*(data_count+1)) = [0x10,0xB508) and therefore
+//     overlaps file 0 over [0x2FC,0xB488) plus its last-32 tail at
+//     [0xB488,0xB508) — all restamped, none mirrored (there is no second
+//     copy). The slot `next` fields and flat `tbl_idx` fields name FILES,
+//     not offsets, so they stay valid with no table surgery.
+//   - The final marker tbl[data_count] is 0 (file data_count-1 is
+//     degenerate with no valid range); it is preserved as-is.
+// New files keep index order; offsets are recomputed from tbl[2] onward;
+// the blob covers [0, end of file data_count-2).
+typedef struct {
+    u32 index;       // data-file index, must satisfy 2 <= index <=
+                     // file_count-2 (0/1 are table carriers, the last is
+                     // the degenerate end marker)
+    const u8 *data;  // replacement bytes (may be NULL iff size == 0)
+    u32 size;
+} gt2_vol_replacement_t;
+
+// Upper bound for one replacement (sanity, not a format limit).
+#define GT2_VOL_PACK_MAX_FILE (0x40000000u)
+
+// Build a repacked VOL extent blob from `image_path` (raw or cooked).
+// With rep_count == 0 the blob is byte-identical to the source extent.
+// Rejected with INVAL: bad index (0/1/last/out of range), duplicate index,
+// data == NULL with size != 0, oversize entry. Caller frees *blob_out.
+gt2_vol_status_t gt2_vol_pack(const char *image_path,
+                              const gt2_vol_replacement_t *reps, u32 rep_count,
+                              u8 **blob_out, u32 *blob_size_out);
 
 typedef void (*gt2_vol_entry_visit_fn)(const gt2_vol_entry_t *entry,
                                        void *ctx);
