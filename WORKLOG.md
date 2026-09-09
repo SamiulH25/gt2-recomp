@@ -1,8 +1,24 @@
 # Worklog — GT2 Hybrid Recompilation
 
-Updated: 2026-09-08 (Phase C finished)
+Updated: 2026-09-09 (Phase D started)
 
 ## Done
+
+- [2026-09-09] Phase D.1 overlay census + anchor verdict
+  (`tools/ovl_census.py`, `decomp/docs/overlay_notes.md`): roles from
+  static census + upstream splat/symbol leads — gt2_01 3D+menu, gt2_02
+  REPLAY (entrypoint0 0x80011384 = loader-table idx1 target), gt2_03
+  ARCADE+FMV (DecDCTReset), gt2_04 shared race utils (memset_caller at
+  entry), gt2_05 event/license/career rules (1163 syms), gt2_06 movie
+  player (DecDCT_inout). Entries NON-UNIFORM (kills shared-stub model).
+  Anchor semantics instruction-proven: 19B58/2106C store *obj (key,
+  taggable), 1C17C/234F8 store sp+0x20 (untaggable) — plugin narrowed
+  to the 2 valid sites (never fires anywhere observed; rebuilt).
+  Only 4 sw-to-0x70 sites exist in gt2_01 (no post-projection SXY store).
+  Codec probe: .cdo.gz/.dat.gz NOT zlib-family (custom codec, entropy
+  ~7.7, no TOC) — separate overlay-side decoder, entry open. /tmp wipe
+  recovered (ISO re-cooked; evidence had been committed). 14 tests PASS;
+  recomp rebuilt (widescreen 2-site)
 
 - [2026-09-08] Phase C finished with the first real mods
   (`tools/demo_mod.py`, self-verifying): TXD swap ("Wrong Way"→

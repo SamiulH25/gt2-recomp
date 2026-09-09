@@ -78,3 +78,31 @@ emulation (`tools/mips_emu.py` + BIOS/CD stubs); the port
   members are followed by zero padding to 4-byte alignment (1-3 B).
   Member sizes match `docs/OVERLAYS.md` exactly
   (144709→316920 … 3602→8416).
+
+## Member census (Phase D.1, 2026-09-09 — `tools/ovl_census.py`)
+
+Static per-member census (VRAM `0x80010000` base) + role leads from
+`_upstream/gt2-reversing` splat yamls/symbol files (leads only, and note
+upstream mixes US/EU revisions — verify before trusting an address):
+
+| member | size | COP2/RTPS/RTPT | syscall | JAL | anchors | role hypothesis |
+|---|---|---|---|---|---|---|
+| gt2_01 | 316920 | 1314/66/26 | 13 | 3193 | 4 | 3D render + menu (`load_global_menu_overlay`, memset_u8/u32/u16 in ovr1 syms; the only member with projection sites) |
+| gt2_02 | 248004 | 51/0/0 | 30 | 1207 | 0 | REPLAY (`start_replay`, task0710/0780 callers; entrypoint0 `0x80011384` = the loader-table idx1 target; DO*/DR* license/test code strings) |
+| gt2_03 | 275780 | 8/0/0 | 24 | 1529 | 0 | ARCADE RACE + FMV (`arcaderace_func16`, `DecDCTReset`; most syscalls of any member after 01) |
+| gt2_04 | 11500 | 0/0/0 | 0 | 171 | 0 | SHARED RACE UTILS (`memset_caller` AT entry `0x80010000`, `large_task*`, `shared_gt_race_func4`; no strings — pure code) |
+| gt2_05 | 273012 | 1/0/0 | 0 | 1192 | 0 | EVENT/LICENSE/CAREER RULES (1163 syms: `load_license`, `load_event_task*`, `is_international_league`, `is_gt_world_cup`, `is_event_synthesizer`; `LIS/LIA/LIB…%02d` strings) |
+| gt2_06 | 8416 | 2/0/0 | 0 | 112 | 0 | MOVIE player (1145 syms: `fill_memory` at entry, `dctout_callback`, `DecDCT_inout`; lone string `12psxMovieLoop`) |
+
+Notes:
+
+- Entries are NON-UNIFORM (kills the "task0a +0xC0 fits all" model):
+  ovr2 starts with `slt` prologue + max3/min3 at base, real entrypoint0
+  at `0x80011384`; ovr4's entry IS `memset_caller`; ovr5 starts with
+  `load_license_task0`; ovr6 with `fill_memory`. Member init = per-member
+  RE, not a shared stub.
+- No member besides gt2_01 has Tomba anchor pairs (0) or RTPS/RTPT (0);
+  screen-cull `slti 0x140`-class hits are 0 everywhere except 5 weak
+  immediates in gt2_01 (no W+H pair funnel — GPU auto-clip stands).
+- gt2_02's 51 COP2 with zero projection ops: control/status reads
+  (mfc2), not 3D — consistent with replay/camera logic, not rendering.

@@ -97,3 +97,15 @@ Decoded to field level, semantics hypothesized (needs overlay consumer):
   game counts padding as empty strings is consumer knowledge (open).
 - `champtim.tim` (16532 B) = 32 zero bytes + 16500 B opaque payload, no
   TIM magic anywhere (16500 = 110×150? dims need consumer RE).
+
+## Codec for .cdo.gz / .dat.gz (Phase D probe, 2026-09-09)
+
+- NOT zlib-family: raw/zlib/gzip windowBits all fail (`-3`). Entropy
+  ~7.7 bits/byte throughout, no TOC, no magic — custom codec.
+- The OVL gunzip chain (tasks `0x80083E00`/`0x80084364`) provably handles
+  gzip (byte-exact via real zlib in `tools/ovl_load.py` stubs), so the
+  car-model codec is a SEPARATE overlay-side decoder, likely near
+  car-model loading (models render in-race in gt2_01). Entry point open;
+  candidate hunt: cross-refs to the asset-batch primitive from overlay
+  code, or the decoder beside carlogo upload. Sample: `a-a7r.cdo.gz`
+  (10251 B, head `01b2b012…`).
