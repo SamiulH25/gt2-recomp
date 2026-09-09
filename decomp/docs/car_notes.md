@@ -78,8 +78,10 @@ the idealized model used here).
   B available) and offsets vary per file (3941..8256, some hits are
   payload false positives) — pixel decoding waits for the overlay
   consumer (`gt2_logo_find_tim` locates only; decode fails closed).
-- `.carcolor` (file 2, 12342 B): 16-bit-ish values (max `0xF5DC`, 1.1%
-  above `0x7FFF`) — 15-bit color data of unknown dims (6171 u16s).
+- `.carcolor` (file 2, 12342 B): 6171 u16s, 2067 unique, small ints
+  (top: 0, 809, 970, 503) — indices/params, not pixels. First 713 all
+  nonzero (713 = 23×31), then zero-run-padded sections (468 lone-gap-1).
+  Internal sectioning open (needs consumer).
   Decode open.
 - `/carparam` (30 kids): `*.dat.gz` siblings are NOT gzip (custom codec
   — same as `.cdo.gz` car models, e.g. `a-a7r.cdo.gz` head `01b2b012…`).

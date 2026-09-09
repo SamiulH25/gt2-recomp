@@ -1,8 +1,19 @@
 # Worklog — GT2 Hybrid Recompilation
 
-Updated: 2026-09-08 (Phase C closed)
+Updated: 2026-09-08 (Phase C finished)
 
 ## Done
+
+- [2026-09-08] Phase C finished with the first real mods
+  (`tools/demo_mod.py`, self-verifying): TXD swap ("Wrong Way"→
+  "FAST WAY!", same span) + TIM0 R/B channel swap with per-member
+  re-gzip, packed via `vol_pack` machinery — verified back out of the
+  blob (string at file+11, pixel #25271 0x0400→0x0001 after
+  VOL→gzip→TIM→pixel round trip). Staged-blob injection only; same-size
+  ISO sector overwrite is future work. Remaining opens honestly parked:
+  logo/champtim/carcolor pixel dims, carparam/cdo codec (= libpress
+  chain, Phase D), CRS semantics, SEQ player — all need overlay
+  consumers. 14 tests PASS; recomp untouched
 
 - [2026-09-08] Phase C CLOSED. Asset pipeline read→modify→(staged)inject:
   * C.2 TIM SHIPPED (`gt2/tim.h`, `test_tim`, `tools/tim_dump.py`):
