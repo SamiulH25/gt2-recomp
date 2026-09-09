@@ -72,3 +72,9 @@ emulation (`tools/mips_emu.py` + BIOS/CD stubs); the port
   OVL members come from `gt2_ovl_read_member` / `tools/split_ovl.py`.
 - `tools/ovl_load.py` — replayable full-load emulation (idx0/idx1
   byte-exact to VRAM); ends at the open post-load pass.
+- `tools/ovl_pack.py` — repack: parse header, rebuild (original members
+  → byte-identical round trip, verified), `--replace-member I=rawfile`
+  (re-gzip), `--verify` (reparse + inflate-compare). Layout finding:
+  members are followed by zero padding to 4-byte alignment (1-3 B).
+  Member sizes match `docs/OVERLAYS.md` exactly
+  (144709→316920 … 3602→8416).

@@ -70,3 +70,30 @@ RAM model: vol_buffer `0x800A97D0` <- VOL slot window, header copy
 - Other `0x8005D848`-family users: none in SCUS beyond task0b1 (sole
   `0x8005D8A0` caller); overlay code may call the primitive directly.
 - `gt2_vol_pread` (raw cooked-space read) was added for window loads.
+
+## CRS record fields + course files (Phase C.4 probe, 2026-09-08)
+
+126 records × 0x18 from the `/.crsinfo` window (magic `CRS\0`, u16@6=126).
+Decoded to field level, semantics hypothesized (needs overlay consumer):
+
+| field | rec0 | rec1 | shape |
+|---|---|---|---|
+| +0 off | `0xBEE` | `0xC4F` | rebased offset (window-relative), all in-window |
+| +4 hash | `B70B31B6` | `C084ECFE` | == crsmap stem-hash (course id) |
+| +8 a | `0x48` | `0x70048` | small int/flags; low byte often `0x48/0x49/0x08` |
+| +12 b | `0` | `0` | usually 0 (rec2: `0x05990000`) |
+| +16 c | `0x08000000` | `0x08000000` | near-constant (scale 8.0 fixed? flags?) |
+| +20 d | `0x08000000` | `0x09990000` | varies per course (`0x03330000`…) |
+
+- `course_mapinfo` (2063 B) = 3 NUL-separated names (`_new_2p`,
+  `pikes_2p`, `pikes_2p_rev`) + 2034 ZERO bytes — looks like a
+  runtime-filled reservation shipped zeroed (compare vs RAM snapshots in
+  Phase D; same pattern as weight/dispatch tables).
+- `course_map` (591857 B) binary, open (head `40282329…`).
+- `/.text/data-race.txd` (44983 B) = flat NUL-separated strings with
+  variable NUL padding (2293 non-empty: `%dLaps`, `Wrong Way`,
+  `Too Fast To Stop!`, …). Ported as `gt2_txd_count/get` (NUL-scan
+  index); mod rule: replacements must fit the original span. Whether the
+  game counts padding as empty strings is consumer knowledge (open).
+- `champtim.tim` (16532 B) = 32 zero bytes + 16500 B opaque payload, no
+  TIM magic anywhere (16500 = 110×150? dims need consumer RE).

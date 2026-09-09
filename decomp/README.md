@@ -43,6 +43,7 @@ instead of failing, so plain builds never break.
 | Module | Header | State |
 |---|---|---|
 | VOL/GTFS reader | `gt2/vol.h` | ✅ flat + hierarchical paths, listings; raw/cooked images; tested, xchecked vs emulation |
+| VOL repack | `gt2/vol.h` (`pack`/`open_mem`) | ✅ zero-rep byte-identical; grow/shrink with neighbors intact, table monotonic, tree+span resolve; C⊕Python hash-identical; `tools/vol_pack.py` |
 | CD sector I/O | `gt2/cd.h` | ✅ raw-2352 + cooked sector/pread; tested raw-vs-cooked |
 | ISO9660 root files | `gt2/iso.h` | ✅ `GT2.OVL;1`/`GT2.VOL;1` resolve+read; tested raw+cooked |
 | OVL container | `gt2/ovl.h` | ✅ 6 members inflate byte-exact; tested raw+cooked |
@@ -53,6 +54,8 @@ instead of failing, so plain builds never break.
 | car index | `gt2/car.h` | ✅ namehash + 1110-entry build + bsearch + logo z-annotate/backfill; wheel/engine tables; full xchecks |
 | asset batch | `gt2/asset.h` | ✅ crs hash + 120-entry crsmap index + Q2 cache build (248 paths) + sector-window load + 126-record CRS parse/relocate/lookup; emulated |
 | task tails | `gt2/task.h` | ✅ b3 5-phase init (gather/marks/slots/blocks/tails) + b4/b5/b6 + native task0b runner (b2 skipped, HW); emulated |
+| TIM textures | `gt2/tim.h` | ✅ std TIM parse/walk/decode/encode (12-chain arc_topmenu round-trip, GT-logo decode); multi-gzip join; logo locate (decode open); TXD strings; `tools/tim_dump.py` |
+| OVL repack | `tools/ovl_pack.py` | ✅ byte-identical rebuild; member replace (re-gzip) + verify; 4-aligned members |
 | overlay manager | — | mechanics mapped (setjmp/longjmp ctx, save area, gunzip chain); dispatch fill = self-registration |
 | boot/sysinit | `docs/boot_notes.md` | ✅ sequence mapped (entry→main→ovr0_task0 order); inits pending ports |
 

@@ -70,9 +70,17 @@ add_library(gt2_task STATIC
 target_include_directories(gt2_task PUBLIC include)
 target_link_libraries(gt2_task PUBLIC gt2_car gt2_asset)
 
+add_library(gt2_tim STATIC
+  src/tim/tim.c
+)
+target_include_directories(gt2_tim PUBLIC include)
+target_link_libraries(gt2_tim PUBLIC ZLIB::ZLIB)
+
 add_executable(test_vol tests/test_vol.c)
 target_link_libraries(test_vol PRIVATE gt2_vol)
 
+add_executable(test_vol_pack tests/test_vol_pack.c)
+target_link_libraries(test_vol_pack PRIVATE gt2_vol)
 add_executable(test_cd tests/test_cd.c)
 target_link_libraries(test_cd PRIVATE gt2_cd)
 
@@ -103,6 +111,9 @@ target_link_libraries(test_asset PRIVATE gt2_asset)
 add_executable(test_task tests/test_task.c)
 target_link_libraries(test_task PRIVATE gt2_task)
 
+add_executable(test_tim tests/test_tim.c)
+target_link_libraries(test_tim PRIVATE gt2_tim gt2_vol ZLIB::ZLIB)
+
 add_executable(car_probe tests/car_probe.c)
 target_link_libraries(car_probe PRIVATE gt2_car)
 
@@ -113,6 +124,8 @@ add_executable(path_probe tests/path_probe.c)
 target_link_libraries(path_probe PRIVATE gt2_vol)
 
 add_test(NAME vol COMMAND test_vol)
+add_test(NAME vol_pack COMMAND test_vol_pack)
+add_test(NAME tim COMMAND test_tim)
 add_test(NAME cd COMMAND test_cd)
 add_test(NAME iso COMMAND test_iso)
 add_test(NAME ovl COMMAND test_ovl)

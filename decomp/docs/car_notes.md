@@ -63,3 +63,25 @@ the idealized model used here).
   `0x801C93BC`): stride-9 walk over `NNNNN*.es` sounds, leading-decimal
   parse (`0x80011670`), dual end (8-ahead END flag or non-digit next).
   Full 305-entry xcheck vs emulation.
+
+## Textures + car containers (Phase C.2/C.3 probe, 2026-09-08)
+
+- Standard TIM fully ported (`gt2/tim.h`: parse/walk/decode/encode,
+  `gt2_gunzip_join` for multi-member gzip): `arc_topmenu` = 12 chained
+  16-bit TIMs (4×512x120 + 8×140x28) over 12 gzip members at 2048-aligned
+  slots (member sizes verified per-TIM); TIM0 decodes to the GT logo.
+  Round-trip encode is byte-exact. Tool: `tools/tim_dump.py`
+  (info/ppm/logo/txd/raw).
+- Logo containers (`/carlogo/*.tim`, 1673): opaque head + trailing CLUT
+  TIM located strictly (`a-a7rl--.tim`: head 5184 B, TIM 4-bit/16-color
+  62x56 @5184). The declared image length EXCEEDS the file (6956 vs 1128
+  B available) and offsets vary per file (3941..8256, some hits are
+  payload false positives) — pixel decoding waits for the overlay
+  consumer (`gt2_logo_find_tim` locates only; decode fails closed).
+- `.carcolor` (file 2, 12342 B): 16-bit-ish values (max `0xF5DC`, 1.1%
+  above `0x7FFF`) — 15-bit color data of unknown dims (6171 u16s).
+  Decode open.
+- `/carparam` (30 kids): `*.dat.gz` siblings are NOT gzip (custom codec
+  — same as `.cdo.gz` car models, e.g. `a-a7r.cdo.gz` head `01b2b012…`).
+  The decompressor is the game's libpress chain (tasks
+  `0x80083E00`/`0x80084364`, Phase D RE target). Documented, not decoded.
