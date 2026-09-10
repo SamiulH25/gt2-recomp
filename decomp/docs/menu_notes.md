@@ -152,20 +152,70 @@ ground floor.
   amiss 46M — static dispatch serves ~2/3 of overlay calls; the
   interpreter carries the CPS-continuation third.
 
-## Open (F.1b → F.2)
+## F.1b port: menu dispatcher (gt2_01 0x80017784 — DONE 2026-09-10)
 
-- Name the 6 lockstep miss callees + 6 phot hitters. LEAD (2026-09-09):
-  all 6 miss PCs sit inside ONE 480 B function, gt2_01 `0x80017784` —
-  a mode-indexed menu dispatcher: guards on `+0x5D0(s0)` and the
-  task-mem mode byte `[0x801C98E0+0xBF7C+0xA]`, then a 10-way computed
-  goto (`jr` into `[0x8002F0B8+(mode-1)*4]`) plus per-state arms on the
-  `+0x408` flag byte (values 2/3/4/7/11 → helpers `0x80017174/0x80017200/
-  0x800171B8/0x8001710C`, returns 4/7/9/11). Its tail couples to the b3
-  MARK tables (`+0x3C74` index math from task-mem halves +0x582/+0x584,
-  halfword copy to +0x58 when both negative; sets +0x5D1). CRITICAL:
-  the 10 table words are high-entropy non-pointer bytes in the SCUS file
-  — the table is RUNTIME-FILLED (second self-registration target
-  alongside `0x801EF610`; same writer hunt as Phase E residue).
+Port: `gt2/dispatch.h` (`select`, `arm_run` A/B/C/D, `tail`, `sync0`,
+`wait`, `sub_entry`, `sub_select`); driver `tools/menu_dispatch.py`;
+test `decomp/tests/test_dispatch.c` (guards, 12 arm×flag vectors with
+call sequences, tail halves incl. OOB, sync0 stamps, wait scripts —
+all emu-exact).
+
+- Guards: obj+0x5D0 nonzero + mode−1 < 10 (sltiu), mode byte at T2+0xA
+  (T2 = taskbase+0xBF7C — NOT taskbase-relative; an early driver draft
+  misaddressed halves/dest/mode and the copy proof caught it).
+- Arms: A = wait0 + sub + wait1 + routing (0→11, 2→7, else→tail);
+  B = wait0 + sub + routing (0→7, 2→7 — the beq DELAY slot overwrites
+  v0 with 7 before the epilogue, so NOT 2; else→D-tail);
+  C = wait0 + sub + routing (2→7, 0/4→sync0(mode,11)→4, else→D-tail);
+  D = wait1 + tail. Returns 2/4/7/9/11 (2 never observed — no arm
+  returns it; kept in the enum range from static reading).
+- sync0 (0x8001710C): pure shuffle (obj halves → T2 bytes incl. the
+  MODE byte at T2+0xA — sync0 SETS the byte the dispatchers read) +
+  stamp loop (0x5C stride 0xD0 while counter < (s16)N; negative N exits
+  — signed-slt edge caught in review).
+- wait0/wait1: +0x38B = 0/1 then poll `0x800833E8` (seeded SCUS vcall)
+  until 0/1 (injected; scripted in tests).
+- Tail: copy iff BOTH halves ≥ 0 (nor/srl test — an early note said
+  "both negative"; inverted, emu settled it). Index `a0*16424+0x3C74`
+  + `a1*164` + 0xA6 from taskbase (mark area), dest T2+0x58, +0x5D1 = 1,
+  returns 9. OOB refused past the window (e.g. (5,5) reads Q2-cache
+  territory in-game — valid RAM, wild semantics).
+- Workers `0x800472D4`/`0x8004DF34` are file-NOPs (runtime-patched) →
+  injected. SUB port = select + fallthrough arm only (worker data
+  cookie `0x8005D348`, returns 1).
+- Pivotal harness lesson (documented for reuse): overlay-loaded SCUS
+  addresses (TABLE1/2 at 0x8002F0B8/0x8002F058) hold OVERLAY image
+  bytes in emu, not SCUS file bytes — seeding them IS the runtime fill.
+  An unseeded run "worked" by jr-ing into coincidental data (W2/W/P/P
+  mirage); only the trap-sentinel + seeding discipline proved it.
+
+## Emitter bodies port (render groundwork — DONE 2026-09-10)
+
+Port: `gt2/render.h` (`emit_a`/`emit_b`); driver `tools/render_arena.py`;
+test `decomp/tests/test_render.c` (38 vectors: 4×4 alignment matrix +
+extremes + stale-a2 — all byte-exact).
+
+- Unaligned lwl/swl validated model-vs-model AND against hand-derived
+  MIPS LE semantics (a byte-reversal scare died to the derivation).
+- Stale-a2 leakage characterized: survives lwl only to be dropped by
+  the swl when load-width ≥ store-width (identical packets across a2
+  at fp+2); leaks at fp+4 (narrow load, wide store) → explicit a2in.
+- Link math needs absolute addresses → arena_addr cookie (0 for
+  relocatable native arenas).
+- Two native-portability bugs caught by the test: `~3u` 64-bit
+  truncation (masked ALL vectors — tail-hiding nearly concealed it;
+  lesson: never trust `tail`, read full outputs) and fp%4==1 reading
+  1 byte below fp (contract documented).
+- Tiling proof: A-fill [r, r+12) ends exactly at the next top (r+12);
+  B-returns never filled → no overlap, no lifecycle question. OT/DMA
+  consumption (who reads the arena) stays F.3b.
+
+## Open (F.1b+ / F.3b → future)
+
+- SUB's other 10 TABLE2 arms (need live table contents + W2 `0x8004DF34`
+  semantics + T2+0xC514 state); the 0x80017A44+ second cluster
+  (calls 17174/17200/171B8/1710C from 0x80017A44/94/BC/F8 — a second
+  dispatcher region, unmapped).
 - Member residency timeline: boot-menu era = gt2_02 resident (Sept-6
   tick set) with cross-calls into gt2_01 (the vmiss lockstep-6);
   garage era = gt2_01 resident (phot = funnel/batch-loop region

@@ -1,8 +1,21 @@
 # Worklog — GT2 Hybrid Recompilation
 
-Updated: 2026-09-09 (Phase F started)
+Updated: 2026-09-10 (Phase F finishing)
 
 ## Done
+
+- [2026-09-10] Phase F.1b menu dispatcher (`gt2/dispatch.h`,
+  `tools/menu_dispatch.py`, `test_dispatch` PASS): guards + 10-way
+  select (tables stay data — overlay-owned RAM, runtime-filled) +
+  arms A/B/C/D (rets 4/7/9/11) + mark-coupled tail + sync0/wait/sub-
+  entry. Test caught the T2-vs-taskbase misaddressing + a signed-slt
+  edge + stale-byte OOB trap. Trap-sentinel proved the jr; unseeded-
+  table mirage documented as harness lesson.
+- [2026-09-10] Render packet bodies (`gt2/render.h`,
+  `tools/render_arena.py`, `test_render` PASS): emit_A/B exact
+  (38-vector alignment matrix, stale-a2 characterized, tiling proof —
+  no overlap question). Caught `~3u` 64-bit truncation + fp%4==1
+  below-fp read. OT/DMA consumption stays F.3b.
 
 - [2026-09-09] Phase F.1a menu record + tick (`gt2/menu.h`, `tools/menu_tick.py`,
   `test_menu` PASS): gt2_02 record init (5 fields, holes kept) + saturating

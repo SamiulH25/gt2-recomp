@@ -80,6 +80,16 @@ add_library(gt2_menu STATIC
 )
 target_include_directories(gt2_menu PUBLIC include)
 
+add_library(gt2_dispatch STATIC
+  src/dispatch/dispatch.c
+)
+target_include_directories(gt2_dispatch PUBLIC include)
+
+add_library(gt2_render STATIC
+  src/render/render.c
+)
+target_include_directories(gt2_render PUBLIC include)
+
 add_library(gt2_tim STATIC
   src/tim/tim.c
 )
@@ -127,6 +137,12 @@ target_link_libraries(test_host PRIVATE gt2_host)
 add_executable(test_menu tests/test_menu.c)
 target_link_libraries(test_menu PRIVATE gt2_menu)
 
+add_executable(test_dispatch tests/test_dispatch.c)
+target_link_libraries(test_dispatch PRIVATE gt2_dispatch)
+
+add_executable(test_render tests/test_render.c)
+target_link_libraries(test_render PRIVATE gt2_render)
+
 add_executable(test_tim tests/test_tim.c)
 target_link_libraries(test_tim PRIVATE gt2_tim gt2_vol ZLIB::ZLIB)
 
@@ -155,3 +171,5 @@ add_test(NAME asset COMMAND test_asset)
 add_test(NAME task COMMAND test_task)
 add_test(NAME host COMMAND test_host)
 add_test(NAME menu COMMAND test_menu)
+add_test(NAME dispatch COMMAND test_dispatch)
+add_test(NAME render COMMAND test_render)
