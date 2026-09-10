@@ -59,6 +59,7 @@ instead of failing, so plain builds never break.
 | menu records | `gt2/menu.h` | ✅ record init + saturating counter + 0x59C emit-tick (div-3 ease, flag-selected packet stanzas via injected emitters); 15-vector xcheck |
 | menu dispatcher | `gt2/dispatch.h` | ✅ mode-indexed dispatch (select/arms A-D/tail/sync0/wait/sub-entry); jump tables stay data (runtime-filled); helpers emu-exact |
 | render packets | `gt2/render.h` | ✅ emit_A/emit_B arena appends (exact lwl/swl, alignment matrix + stale-a2); OT/DMA consumption open |
+| card driver | `gt2/card.h` | ✅ status machine (counters/lanes/maze, 8 injected callees, scripted steering); frame layout needs a real save |
 | TIM textures | `gt2/tim.h` | ✅ std TIM parse/walk/decode/encode (12-chain arc_topmenu round-trip, GT-logo decode); multi-gzip join; logo locate (decode open); TXD strings; `tools/tim_dump.py` |
 | OVL repack | `tools/ovl_pack.py` | ✅ byte-identical rebuild; member replace (re-gzip) + verify; 4-aligned members |
 | overlay manager | — | mechanics mapped (setjmp/longjmp ctx, save area, gunzip chain); dispatch fill = self-registration |

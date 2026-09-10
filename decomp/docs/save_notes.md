@@ -26,9 +26,33 @@ GT2 filenames: `"BA"` + `"SCUS-94488"` + 8 chars. Title frame:
 - GT2 save-frame layout inside data blocks (where CRC32 sits, car/
   progress encoding) — needs a real save. The repo cards are empty;
   end-to-end saving via the game is unproven (see `docs/SAVE_STATUS`).
-- Write path: format + allocate + write + checksums (`gt2_mcd`
-  currently parses/reads only).
-- Save state machine entry: SCUS `0x80073978` (400+ insns, dispatches
-  on card status bits through `0x8006D400`/`0x8006ACxx`/`0x8007DAxx`
-  and friends). Card-response-coupled — mapped, not ported; the frame
-  layout falls out once a real save exists to emulate against.
+- (CLOSED: the MCD write path — format/allocate/write/delete/checksums
+  — is fully ported in `gt2/mcd.h`; the "parses/reads only" note above
+  was stale.)
+
+## Status driver (SCUS 0x80073720 — PORTED 2026-09-10)
+
+Port: `gt2/card.h` (`gt2_card_run`); driver `tools/save_state.py`;
+test `decomp/tests/test_card.c` (status sweep, regions, counter edges,
+state sweep, OOB — all emu-exact).
+
+- Entry (a0=state, a1=EV-PTR — a pointer, not flags; small ints trap):
+  s3=-2; CFC4(+0x44); BE64(+0x28); counter trio +0x14 (sat 13→12,
+  negatives climb except -1 which exits)/+0x16 (sat 61→0)/+0x18
+  (sat 41→0); DA80(stack scratch, state[0]); ev NULL → -2.
+- Event struct: status @+4, extra @+0xC, OR'd into s1 (caller's s1 is
+  clobbered by the load — only the OR matters; s1-init unobservable
+  natively, same as emu.call).
+- Lanes: 0x500 (+0x1C countdown → op(2)+op3524 / op(0)); 0xA00
+  (+0x1A==0xC → -1/0 on +0x1B<8/≥8; else 8CFC4 → memmove/table/6AD3C
+  → R5-entry or 73524+R4, or op(2)); maze (0x10000 → D400 block with
+  +0x1A forced 0x0C BY THE JAL DELAY SLOT — d400's return discarded;
+  0x10/0x1000 countdown+min-clamp; R7 copy +0x4A→+0x1A; bit4/bit8
+  countdowns; 0x101F tail → op(5)/-3). Returns -3/-2/-1/0.
+- +0x24 is a data-window pointer (never compared — dropped for a native
+  window; pointer-independence vector proves it). SCUS const table
+  0x8009226C comes in as aux_tab (index (+0x1A<<4)+(+0x1B)).
+- Delay-slot census (all verified against emu after misreading most of
+  them once): sb-0x1A (D400 arg, not return), beq-v0=7 (arm-B style
+  overwrite), andi-0x101F recompute (R10/R11 join), move-s3 (R11 exit
+  carries -2/-1/0 correctly).

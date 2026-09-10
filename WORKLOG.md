@@ -16,6 +16,29 @@ Updated: 2026-09-10 (Phase F finishing)
   (38-vector alignment matrix, stale-a2 characterized, tiling proof —
   no overlap question). Caught `~3u` 64-bit truncation + fp%4==1
   below-fp read. OT/DMA consumption stays F.3b.
+- [2026-09-10] Card status driver (`gt2/card.h`, `tools/save_state.py`,
+  `test_card` PASS): full 504 B machine (entry counters incl. 3
+  saturations, ev-ptr struct, 0x500/0xA00 lanes, memmove/table/6AD3C,
+  bit maze, rets -3/-2/-1/0) with 8 injected callees + scripted
+  steering. Caught: ev-a1-is-pointer, delay-slot sb/andi/move
+  overwrites. Frame layout still needs a real save (nav-blocked); MCD
+  write path was already done (stale note fixed).
+- [2026-09-10] Phase F finished (ports + bounded residue):
+  * Menu/UI (F.2): record/tick/dispatch ports + live deep-log run.
+    Residue: SUB's 10 TABLE2 arms + 0x80017A44 cluster (need live table
+    contents), lazy-registration + jump-table writers (need live game),
+    residency timeline proof (resident-CRC recorder upgrade).
+  * Render (F.3): emit_A/B bodies + tiling proof. Residue: OT/DMA
+    consumption + ordering table + host frame renderer (need live
+    packet streams via gp0_ring captures).
+  * Save (F.1): card driver port + MCD IO done. Residue: frame layout
+    (needs a REAL save — nav-blocked).
+  * CD streaming (F.7): slot6/228/229 windows ported. Residue:
+    multi-slot generalization (only 3 slots observed; speculative).
+  * Physics (F.4) / AI (F.5): blocked (carparam codec + live race).
+  * Audio (F.6): SEQ probe + SPU init done. Residue: player/voices
+    (needs live allocation trace).
+  19 tests PASS; recomp untouched.
 
 - [2026-09-09] Phase F.1a menu record + tick (`gt2/menu.h`, `tools/menu_tick.py`,
   `test_menu` PASS): gt2_02 record init (5 fields, holes kept) + saturating
@@ -273,13 +296,13 @@ Updated: 2026-09-10 (Phase F finishing)
 
 ## Next
 
-- Phase F.1b: name the 6 lockstep miss callees + 6 phot hitters
-  (enclosing-function analysis + resident-CRC recorder upgrade);
-  member residency timeline across phases.
-- Then: save system (`gt2_save_frame_*` once a real save exists — still
-  blocked on nav); 0x8006B61C + wrapper inflate ports (need pages/gzip).
-- Carried: lazy-registration question, codec decoder entry, PGXP
-  same-frame A/B, 4x seams, logo/champtim/CRS/SEQ semantics.
+- Phase G prerequisites (all need live game state first): a real race
+  (nav — the critical path), a real save (frame layout), live packet
+  streams (OT/host renderer), live table dumps (SUB arms, lazy reg).
+- Then: `gt2_native` link-up (boot + host + Phase E/F systems), parity
+  gate vs recomp, cutover.
+- Carried: codec decoder entry, PGXP same-frame A/B, 4x seams,
+  logo/champtim/CRS/SEQ semantics, 0x80017A44 cluster.
 - Perf profile-first (VERDICT, PROVISIONAL — menu-phase data only): automation never reached a real race (all "race" windows were car-select/status screens), so the no-hotspot finding covers menus only. True in-race residency (74BDB962 scene member?) still unmeasured. Navigation to a real race is the critical path; re-run profile AFTER first real race. (Original verdict text kept below for the record: SIGPROF+ledger+BENCH converge on menus — 60fps held, wall ~ guest 25-30 / render 14-36 / pacer rest, no coarse guest hotspot, biggest item SCUS func_80094DC8 59KB/~10% wall. Infra kept env-gated + inert.)
 - Perf: GT2 3D runs interpreted (5-7M interp insns/s); static overlay codegen for gt2_01 is the native-execution fix
 - Texture seams at 4x bilinear (open, both 2D+3D)
