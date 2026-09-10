@@ -233,6 +233,51 @@ extern void overlay_loader_get_counters(uint32_t *loads,
                                         int *regions,
                                         uint32_t *revalidations);
 
+/* Deep-log master flag (GT2_DEEPLOG=1): readable from generated-code hot
+ * paths as a single predictable branch so the default-off cost is ~zero.
+ * PROFLOG implies it (miss tables feed the same dumps). */
+int g_gt2_deeplog = 0;
+
+/* Dispatch-miss tables (patch_overlay_prof.py miss sites): WHICH overlay
+ * functions the game calls but static dispatch can't serve.
+ * - s_miss_*: address compiled somewhere, no occupant resident (CRC/band)
+ * - s_amiss_*: address compiled nowhere, but inside overlay range
+ *   (0x80010000-0x801FFFFF phys-masked) — kernel/interp traffic excluded.
+ * First-seen heavy hitters; sampler-thread reads race benignly. */
+#define GT2_MISS_SLOTS 256
+static uint32_t s_miss_addr[GT2_MISS_SLOTS];
+static uint64_t s_miss_cnt[GT2_MISS_SLOTS];
+static uint32_t s_amiss_addr[GT2_MISS_SLOTS];
+static uint64_t s_amiss_cnt[GT2_MISS_SLOTS];
+
+static void gt2_miss_add(uint32_t *ha, uint64_t *hc, uint32_t addr) {
+    uint32_t h = ((addr >> 2) * 2654435761u) & (GT2_MISS_SLOTS - 1u);
+    for (uint32_t p = 0; p < 16; p++) {
+        uint32_t i = (h + p) & (GT2_MISS_SLOTS - 1u);
+        uint32_t a = ha[i];
+        if (a == addr) {
+            hc[i]++;
+            return;
+        }
+        if (a == 0) {
+            ha[i] = addr;
+            hc[i] = 1;
+            return;
+        }
+    }
+}
+
+void gt2_prof_note_dispatch_miss(uint32_t addr) {
+    gt2_miss_add(s_miss_addr, s_miss_cnt, addr);
+}
+
+void gt2_prof_note_address_miss(uint32_t addr) {
+    uint32_t phys = addr & 0x1FFFFFFFu;
+    if (phys < 0x80010000u || phys >= 0x80200000u)
+        return;
+    gt2_miss_add(s_amiss_addr, s_amiss_cnt, addr);
+}
+
 /* Static-dispatch hit histogram (patch_overlay_prof.py hit sites in
  * psx_overlay_dispatch): which overlay functions actually serve calls.
  * Open-addressed addr->count, sampler-thread reads race benignly
@@ -240,6 +285,33 @@ extern void overlay_loader_get_counters(uint32_t *loads,
 #define GT2_SHOT_SLOTS 256
 static uint32_t s_shot_addr[GT2_SHOT_SLOTS];
 static uint64_t s_shot_cnt[GT2_SHOT_SLOTS];
+
+static void gt2_prof_top6(const char *tag, const uint32_t *ha,
+                          const uint64_t *hc, int slots) {
+    int picked[6] = {-1, -1, -1, -1, -1, -1};
+    for (int k = 0; k < 6; k++) {
+        uint64_t best = 0;
+        for (int i = 0; i < slots; i++) {
+            int seen = 0;
+            for (int j = 0; j < k; j++)
+                if (picked[j] == i) {
+                    seen = 1;
+                    break;
+                }
+            if (!seen && hc[i] > best) {
+                best = hc[i];
+                picked[k] = i;
+            }
+        }
+        if (picked[k] < 0 || best == 0)
+            break;
+    }
+    fprintf(stderr, "[%s]", tag);
+    for (int k = 0; k < 6 && picked[k] >= 0; k++)
+        fprintf(stderr, " %08x:%llu", ha[picked[k]],
+                (unsigned long long)hc[picked[k]]);
+    fprintf(stderr, "\n");
+}
 
 static void gt2_prof_dump(const char *why) {
     uint64_t objs = s_gate_bypass + s_gate_reject + s_gate_class +
@@ -264,32 +336,10 @@ static void gt2_prof_dump(const char *why) {
             (unsigned long long)vmiss, (unsigned long long)amiss,
             (unsigned long long)dnat, (unsigned long long)dint);
     /* Top-6 hitting static addresses (cumulative; diff ticks for rates). */
-    {
-        int picked[6] = {-1, -1, -1, -1, -1, -1};
-        for (int k = 0; k < 6; k++) {
-            uint64_t best = 0;
-            for (int i = 0; i < GT2_SHOT_SLOTS; i++) {
-                int seen = 0;
-                for (int j = 0; j < k; j++)
-                    if (picked[j] == i) {
-                        seen = 1;
-                        break;
-                    }
-                if (!seen && s_shot_cnt[i] > best) {
-                    best = s_shot_cnt[i];
-                    picked[k] = i;
-                }
-            }
-            if (picked[k] < 0 || best == 0)
-                break;
-        }
-        fprintf(stderr, "[gt2_phot]");
-        for (int k = 0; k < 6 && picked[k] >= 0; k++)
-            fprintf(stderr, " %08x:%llu",
-                    s_shot_addr[picked[k]],
-                    (unsigned long long)s_shot_cnt[picked[k]]);
-        fprintf(stderr, "\n");
-    }
+    gt2_prof_top6("gt2_phot", s_shot_addr, s_shot_cnt, GT2_SHOT_SLOTS);
+    /* Top dispatch-miss addresses: called-but-unserved overlay functions. */
+    gt2_prof_top6("gt2_miss", s_miss_addr, s_miss_cnt, GT2_MISS_SLOTS);
+    gt2_prof_top6("gt2_amiss", s_amiss_addr, s_amiss_cnt, GT2_MISS_SLOTS);
     /* Full table every 6th dump (sampler ticks 10s -> 60s cadence): offline
      * join with static function sizes for a cost proxy. */
     {
@@ -428,6 +478,10 @@ static void gt2_prof_ensure(void) {
 #endif
         const char *e = getenv("PSX_PROFLOG");
         s_prof_on = (e && e[0] && e[0] != '0') ? 1 : 0;
+        e = getenv("GT2_DEEPLOG");
+        if (e && e[0] && e[0] != '0')
+            s_prof_on = 1;
+        g_gt2_deeplog = s_prof_on;
         e = getenv("PSX_SPROF_HZ");
         if (e && e[0])
             s_sprof_hz = (unsigned)strtoul(e, NULL, 10);

@@ -62,6 +62,27 @@ HIT_SITES = (
     (HIT_LOOP_ANCHOR, "hit-loop"),
 )
 
+# Dispatch-miss sites in psx_overlay_dispatch() (deep-log flight recorder):
+# - MISS: address compiled somewhere, but no occupant resident (CRC/band)
+#   -> falls through to the interpreter.Answers "what did the game call
+#   that static dispatch couldn't serve".
+# - AMISS: hash slot empty (compiled nowhere). Gated in-macro on the
+#   deeplog flag AND overlay range inside the note fn; the hot path pays
+#   one predictable branch + (usually) one call it would make anyway.
+MISS_ANCHOR = ("    /* Address is ours but no occupant is resident -> interpreter. */\n"
+               "    return 0;")
+MISS_ADD = ("    { extern int g_gt2_deeplog; extern void gt2_prof_note_dispatch_miss(uint32_t);\n"
+            "      if (g_gt2_deeplog) gt2_prof_note_dispatch_miss(addr); }\n")
+AMISS_ANCHOR = ("            psx_ov_static_address_misses++;\n"
+                "            return 0;")
+AMISS_ADD = ("            { extern int g_gt2_deeplog; extern void gt2_prof_note_address_miss(uint32_t);\n"
+             "              if (g_gt2_deeplog) gt2_prof_note_address_miss(addr); }\n")
+
+MISS_SITES = (
+    (MISS_ANCHOR, MISS_ADD, "miss", "before"),
+    (AMISS_ANCHOR, AMISS_ADD, "amiss", "before"),
+)
+
 
 def main() -> int:
     check_only = "--check" in sys.argv
@@ -69,25 +90,33 @@ def main() -> int:
     have_core = "gt2_prof_note_entry" in src and \
         "gt2_prof_note_near" in src and "gt2_prof_note_far" in src
     have_hit = "gt2_prof_note_static_hit" in src
-    if have_core and have_hit:
-        print("profiler already present (3 funcB sites + 2 hit sites)")
+    have_miss = "gt2_prof_note_dispatch_miss" in src and \
+        "gt2_prof_note_address_miss" in src
+    if have_core and have_hit and have_miss:
+        print("profiler already present (3 funcB + 2 hit + 2 miss sites)")
         return 0
-    if "gt2_prof_note_" in src and not (have_core and not have_hit):
-        if not have_core:
-            print("PARTIAL profiler present — regen or revert before re-applying")
-            return 1
-    for anchor, _add, name, _pos in SITES:
-        if not have_core and src.count(anchor) != 1:
-            print(f"ANCHOR NOT UNIQUE ({src.count(anchor)}x): {name}")
-            return 1
+    if "gt2_prof_note_" in src and not have_core:
+        print("PARTIAL profiler present — regen or revert before re-applying")
+        return 1
+    if not have_core:
+        for anchor, _add, name, _pos in SITES:
+            if src.count(anchor) != 1:
+                print(f"ANCHOR NOT UNIQUE ({src.count(anchor)}x): {name}")
+                return 1
     if not have_hit:
         for anchor, name in HIT_SITES:
             if src.count(anchor) != 1:
                 print(f"ANCHOR NOT UNIQUE ({src.count(anchor)}x): {name}")
                 return 1
+    if not have_miss:
+        for anchor, _add, name, _pos in MISS_SITES:
+            if src.count(anchor) != 1:
+                print(f"ANCHOR NOT UNIQUE ({src.count(anchor)}x): {name}")
+                return 1
     if check_only:
         print("would insert profiler (%d sites)" %
-              ((0 if have_core else 3) + (0 if have_hit else 2)))
+              ((0 if have_core else 3) + (0 if have_hit else 2) +
+               (0 if have_miss else 2)))
         return 0
     if not have_core:
         for anchor, add, _name, pos in SITES:
@@ -101,6 +130,12 @@ def main() -> int:
             old = anchor.split("\n")
             new = "\n".join(old[:-2] + [HIT_PRE + old[-2], old[-1]])
             src = src.replace(anchor, new, 1)
+    if not have_miss:
+        for anchor, add, _name, pos in MISS_SITES:
+            if pos == "after":
+                src = src.replace(anchor, anchor + add, 1)
+            else:
+                src = src.replace(anchor, add + anchor, 1)
     PATH.write_text(src)
     print("profiler inserted")
     return 0
