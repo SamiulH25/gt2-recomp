@@ -1,8 +1,25 @@
 # Worklog — GT2 Hybrid Recompilation
 
-Updated: 2026-09-09 (Phase E finished)
+Updated: 2026-09-09 (Phase F started)
 
 ## Done
+
+- [2026-09-09] Phase F.1a menu record + tick (`gt2/menu.h`, `tools/menu_tick.py`,
+  `test_menu` PASS): gt2_02 record init (5 fields, holes kept) + saturating
+  0..12 counter (wrap edges emu-proven) + full 0x59C emit_tick port
+  (div-3 magic, (12-cnt) blend, flag-selected stanzas via injected
+  emit_A/emit_B/emit_S). The test caught 3 real port bugs (extra stanza A,
+  `|` vs `+` packet carry, s4-vs-(s4-s5) fill base) — all settled against
+  emu hook args/packet bytes, not reasoning. 15 vectors byte-exact.
+  Machine-beats-mind count: an armchair div gave 49, emu gave 46 (51*11=561,
+  not 591). Emitter protocol decoded (arena [0x801C93EC], tags 1/4, 8+12 B
+  packets) = F.3 ground floor. Wrapper inflate pair + 0x8006B61C stay gaps.
+- [2026-09-09] Live deep-log run (v6 full, 207900 frames): nav STILL blocked —
+  garage at hub-settle/drive/final dumps (`docs/screenshots/garage-at-drive-
+  phase.png`); EXIT→hub reproduced 0×. Miss top-6 (0x800177CC…×20058, frozen
+  early) = boot-era lockstep set, CPS-continuation class, unattributed
+  (needs resident-CRC recorder upgrade); amiss empty all run; phot garage
+  set differs from boot-menu set (residency timeline is F.1b).
 
 - [2026-09-09] Phase E finished (host + bounded residue):
   * E.1 b2 + E.2 host (committed): queue/complete port, boot_run
@@ -243,9 +260,11 @@ Updated: 2026-09-09 (Phase E finished)
 
 ## Next
 
-- Phase F start: menu/UI flow (the critical path — unblocks nav,
-  save proof, entrypoint runtime state, record-fill observation).
-- Then: save system (`gt2_save_frame_*` once a real save exists).
+- Phase F.1b: name the 6 lockstep miss callees + 6 phot hitters
+  (enclosing-function analysis + resident-CRC recorder upgrade);
+  member residency timeline across phases.
+- Then: save system (`gt2_save_frame_*` once a real save exists — still
+  blocked on nav); 0x8006B61C + wrapper inflate ports (need pages/gzip).
 - Carried: lazy-registration question, codec decoder entry, PGXP
   same-frame A/B, 4x seams, logo/champtim/CRS/SEQ semantics.
 - Perf profile-first (VERDICT, PROVISIONAL — menu-phase data only): automation never reached a real race (all "race" windows were car-select/status screens), so the no-hotspot finding covers menus only. True in-race residency (74BDB962 scene member?) still unmeasured. Navigation to a real race is the critical path; re-run profile AFTER first real race. (Original verdict text kept below for the record: SIGPROF+ledger+BENCH converge on menus — 60fps held, wall ~ guest 25-30 / render 14-36 / pacer rest, no coarse guest hotspot, biggest item SCUS func_80094DC8 59KB/~10% wall. Infra kept env-gated + inert.)
