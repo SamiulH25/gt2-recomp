@@ -1,10 +1,12 @@
 # Menu/UI flow notes (Phase F native-port research log)
 
 Game addresses are VRAM (`overlays/gt2_02.exe` at `0x80010000`, SCUS
-thunks as noted). Port: `gt2/menu.h` (`record_init`, `counter_bump`,
-`emit_tick`); driver `tools/menu_tick.py`; test `decomp/tests/test_menu.c`
-(15-tick-vector xcheck: sequences + emitter flags + packet bytes +
-short-path cells, all byte-exact vs emulation).
+thunks as noted). Ports: `gt2/menu.h` (`record_init`, `counter_bump`,
+`emit_tick`; driver `tools/menu_tick.py`, `decomp/tests/test_menu.c`),
+`gt2/dispatch.h` (mode dispatcher + helpers; `tools/menu_dispatch.py`,
+`decomp/tests/test_dispatch.c`), `gt2/render.h` (emit_A/B arena bodies;
+`tools/render_arena.py`, `decomp/tests/test_render.c`) — all byte-exact
+vs emulation (see F.1a/F.1b/emitter sections).
 
 ## Menu phase spec (auto-input v6 — the executable spec)
 

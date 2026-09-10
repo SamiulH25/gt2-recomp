@@ -56,11 +56,12 @@ Modification ceiling today:
   funnels, no screen-cull funnel (GPU auto-clip), runtime region
   `0x80165000` vs compile-time `0x8001xxxx`.
 
-### 0.2 Decomp (12 tests, ~3066 lib lines + ~1775 test lines)
+### 0.2 Decomp (19 tests, ~5100 lib lines + ~3800 test lines)
 
 `decomp/CMakeLists.txt`: libs `gt2_cd/vol/iso/ovl/save/spu/mcd/boot/car/
-asset/task` + exes `test_vol/cd/iso/ovl/save/spu/mcd/boot/car/sysclock/
-asset/task` + probes `car_probe/path_probe`.
+asset/task/host/tim/menu/dispatch/render/card` + exes `test_vol/vol_pack/
+tim/cd/iso/ovl/save/spu/mcd/boot/car/sysclock/asset/task/host/menu/
+dispatch/render/card` + probes `car_probe/path_probe`.
 
 | Module | State |
 |---|---|
@@ -74,14 +75,20 @@ asset/task` + probes `car_probe/path_probe`.
 | `sysclock` header-only | ✅ `t0^(t1<<4)^(t2<<8)^(t3<<12)` `0x800108C0`, Timer2 `0x248` |
 | `gt2_car` `decomp/src/car/car.c` | ✅ `namehash 0x80060924`, `weight_init` FOUND (charset `-0..z`, 62 slots), carobj 1110, `car_find 0x8005D950`, wheel 192, engine 305, logo annotate 1336/27 sorted |
 | `gt2_asset` `decomp/src/asset/asset.c` | ✅ `crs_hash rol6 0x80083004`, crsmap 120, window `0x8005D848`, cached `0x8005D8A0` slot6→tbl8 `/.crsinfo 0xFC5`, CRS 126 parse/relocate |
-| `gt2_task` `decomp/src/task/task.c` | ✅ b3 5 phases + b4/b5/b6 + helpers; b2 docs-only (descriptor + HW CD-kick); runner `boot_run` Q2→b0→b1→b3→b4→b5→b6→b7 exact vs `tools/boot_chain.py BOOTSTATE` |
+| `gt2_task` `decomp/src/task/task.c` | ✅ b3 5 phases + b4/b5/b6 + helpers; b2 queued/completed (descriptor + heap + DMA, async timing); runner `boot_run` exact vs `tools/boot_chain.py BOOTSTATE` |
 | `gt2_boot` `decomp/src/boot/boot.c` | ✅ ISO→VOL→OVL chain + overlay load bytes; execution stays in recomp |
+| `gt2_host` `decomp/src/host/host.c` | ✅ vsync counter/wait + timer ticks (Phase E); pad/card/GPU/GTE documented gaps |
+| `gt2_tim` `decomp/src/tim/tim.c` | ✅ TIM parse/walk/decode/encode, gunzip-join, TXD (Phase C) |
+| `gt2_menu` `decomp/src/menu/menu.c` | ✅ record init + counter + 0x59C emit-tick (Phase F.1a) |
+| `gt2_dispatch` `decomp/src/dispatch/dispatch.c` | ✅ mode dispatcher arms/tail/helpers (Phase F.1b); tables stay data |
+| `gt2_render` `decomp/src/render/render.c` | ✅ emit_A/B arena appends (Phase F.3a); OT consumption open |
+| `gt2_card` `decomp/src/card/card.c` | ✅ card status driver, 8 injected callees (Phase F.1); frame layout needs a real save |
 
-Open per `decomp/docs/*_notes.md`: Q4 LBA-base addrs, Q6 multi-sector
-paging + `0x80011390` callers, per-member entries (gt2_02 starts
-`2a10a400`), vsync/pad/GPU/GTE host (`gt2_sysinit 0x80010998` 11 steps),
-save-frame layout + state machine `0x80073978`, CRS overlay consumer, b2
-CD-kick completion, b3 table semantics.
+Open per `decomp/docs/*_notes.md`: save-frame layout (needs a real save),
+SUB TABLE2 arms + `0x80017A44` cluster (need live tables), lazy
+registration + jump-table writers + residency proof (need live game),
+OT/DMA consumption (needs packet captures), physics/AI (need codec +
+race), logo/champtim/CRS/SEQ consumers, PGXP same-frame A/B, 4x seams.
 
 ---
 
@@ -217,6 +224,10 @@ Goal: mod content without touching code. All items closed or probed:
 ---
 
 ## Phase D — Overlay RE (the big unknown: 1.13M of game code)
+(CLOSED 2026-09-09 — member census + roles, non-uniform entries,
+dispatch endpoints (SCUS passes `$a0`-table, overlay self-registers),
+funnel tails (clip+outcode), seeds unchanged by design, codec probed;
+record-fill hunt narrowed to Phase E — see `decomp/docs/overlay_notes.md`)
 
 Goal: name every member + entry + hot function; required before any
 gameplay decomp.
@@ -247,6 +258,11 @@ gameplay decomp.
 ---
 
 ## Phase E — Host replacements for boot/sysinit (native boot checklist)
+(CLOSED 2026-09-09 — `gt2_host` vsync/timer shims, b2 queue/complete port
+with boot_run integration, record-fill hunt bounded (lazy registration or
+deeper init; entrypoint needs live game), OT via LIBGPU observation,
+`neg`+div-operand harness fixes — see `decomp/docs/task_notes.md`,
+`decomp/docs/boot_notes.md`; pad/card/GPU/GTE stay documented gaps)
 
 Goal: `gt2_boot` + `gt2_host` can init without recomp. Order per
 `decomp/docs/boot_notes.md` checklist:
@@ -277,33 +293,32 @@ Goal: `gt2_boot` + `gt2_host` can init without recomp. Order per
 ---
 
 ## Phase F — Core systems decomp (the long tail)
+(CLOSED 2026-09-10 — ports: menu record/tick (`gt2_menu`), menu
+dispatcher (`gt2_dispatch`), render packet bodies (`gt2_render`), card
+driver (`gt2_card`); live-gated residue below. 19/19 tests PASS.)
 
 Each gets its own `gt2_<sys>.h`, `src/<sys>/`, `docs/<sys>_notes.md`,
-`tools/<sys>.py`, `tests/test_<sys>.c`. Rough dependency order:
+`tools/<sys>.py`, `tests/test_<sys>.c`. Rough dependency order
+(status 2026-09-10):
 
-1. **Save system.** Save-frame layout (SC + CRC32 tail positions from real
-   save — needs Phase A.3), car/progress encoding, state machine
-   `0x80073978` (400+ insns, card-coupled). Deliverable:
-   `gt2_save_frame_{encode,decode,verify}` + round-trip vs real
-   `card1.mcd` blocks.
-2. **Menu/UI flow.** Garage → GAME STATUS → My Home → arcade/car/track
-   state machines (the auto-input phases are the spec). Trace SIO inputs
-   → VRAM states; name menu overlay members + their dispatch tables.
-3. **Render loop.** gt2_01 full: ordering table, packet arenas (`0x68`
-   bump / `0x6C` mailbox / `0x801C93EC` mail), LOD, cull, GTE RTPS/RTPT
-   inline paths, GPU GP0 ring. Deliverable: host renderer that draws one
-   frame from a captured packet stream (compare vs `present_shot` PNG).
-4. **Physics/handling.** Car params, tire/suspension, collision
-   (`course_map` + CRS targets), timer/clock integration. Needs track +
-   carparam decode (Phase C.3/C.4) + overlay consumer RE (Phase D).
-5. **AI/race rules.** Opponent lines, lap/checkpoint, position,
-   demo-mode AI (attract reel is the oracle).
-6. **Audio/music.** SEQ playback + SPU voice allocation beyond init
-   (trailing `0x8007916c`, global `0x80092E88`), XA streaming (leave at
-   authentic timing).
-7. **CD streaming.** Async loads, `0x8005D8A0` window cache
-   generalization beyond slot6, overlay paging (Q6 deep dirs: carparam,
-   dirt, engine sub, font, gtmenu, license, replay, sound).
+1. **Save system.** ✅ driver (`gt2_card_run`, 504 B machine, 8 injected
+   callees) + MCD format/write/delete. OPEN: frame layout (SC + CRC32
+   tail positions from real save — needs Phase A.3) + car/progress
+   encoding (`gt2_save_frame_{encode,decode,verify}` still blocked).
+2. **Menu/UI flow.** ✅ record/tick/dispatch ports + live deep-log run
+   (nav verdict: garage throughout). OPEN: SUB's 10 TABLE2 arms,
+   `0x80017A44` cluster, lazy-registration writers, residency proof.
+3. **Render loop.** ✅ emit_A/B bodies + tiling proof (no overlap).
+   OPEN: ordering table, OT/DMA consumption, host frame renderer
+   (needs live packet streams via `gp0_ring` captures).
+4. **Physics/handling.** OPEN — needs carparam codec (Phase D.5) +
+   live race.
+5. **AI/race rules.** OPEN — needs live race (attract reel is the
+   oracle, unmined).
+6. **Audio/music.** ✅ SEQ probe + SPU init. OPEN: player/voice
+   allocation (needs live trace).
+7. **CD streaming.** ✅ slot6/228/229 windows. OPEN: multi-slot
+   generalization (only 3 slots observed — speculative).
 
 Each system exit: emu steps with no traps on real bytes + full-table
 xcheck + host test PASS + docs open questions narrowed to named consumers.
@@ -347,11 +362,12 @@ xcheck + host test PASS + docs open questions narrowed to named consumers.
    `docs/screenshots/`).
 2. `frame_fingerprint` + `vblank_rate` guest-fps verdict — DONE (Phase A.4:
    60fps guest, pollhack 0).
-3. Real-save capture → `gt2_save_frame_*` — OPEN, blocked on nav (Phase F
-   menu/UI).
-4. `vol_pack.py` + `tim_dump.py` — DONE `vol_pack.py` + `gt2_vol_pack`
-   (Phase C.1, hash-identical C⊕Python); `tim_dump.py` NEXT (Phase C.2).
-5. `gt2_host` vsync/pad/timer stubs + b2 CD-kick emulation — OPEN
-   (Phase E).
+3. Real-save capture → `gt2_save_frame_*` — OPEN, blocked on nav
+   (card driver done, MCD IO done; frame layout + car/progress encoding
+   need the save itself).
+4. `vol_pack.py` + `tim_dump.py` — DONE (Phase C: hash-identical C⊕Python
+   round-trips + 12-TIM chain + TXD).
+5. `gt2_host` vsync/pad/timer stubs + b2 CD-kick emulation — DONE
+   (Phase E: shims + queue/complete port + boot_run integration).
 
-Each step keeps `ctest` 12/12 green and `recomp untouched` until Phase G.
+Each step keeps `ctest` 19/19 green and `recomp untouched` until Phase G.
