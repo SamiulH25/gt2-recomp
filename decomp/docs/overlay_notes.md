@@ -148,3 +148,38 @@ function was discovered (all static paths already seeded). Criteria for
 any future addition: fire-evidence + prologue + cross-ref; unmet for all
 current candidates (funnels don't fire; hot `80027BBC`-class PCs are CPS
 continuations, not entries).
+
+## Record-fill hunt (Phase E.3, 2026-09-09 — narrowed, not closed)
+
+Snapshot-diff protocol (proven: detected gt2_01 base init's single
+`+0x107` config-byte write in 242 steps):
+
+- Member base inits do NOT fill records: gt2_01 writes 1 config byte
+  (`sb 0x107/0x10C/0x10E($s1)`, table-adjacent); gt2_02 base is pure
+  max3/min3 clamp helpers (no stores); gt2_03 base calls SCUS lookup
+  `0x800780F8` (a dispatcher, not a filler); gt2_04 base is
+  `memset_caller` (ignores the table).
+- ovr1 entrypoint `0x80011F64` mapped 7876 steps deep (past 2 BIOS
+  thunk-skips) to an interrupt-coupled dispatch at `0x8008C358`
+  (NULL callback vector + poll loop) — needs LIVE game state (even full
+  boot state div-zeroes... rather, stalls: the vector + async change
+  only exist in-game). Blocked, not misunderstood.
+- The SCUS loader MISS path (`0x8005DB40+`: re-read + re-inflate +
+  nibble helpers) fills nothing either.
+- Remaining candidates: lazy per-function registration at first dispatch,
+  or a deeper overlay init call. The `lui-0x801F` sites in overlays read
+  the b6 struct area (`0x801FF5F0+`), not the table.
+- OT groundwork: no direct GPUDATA/DMA register formation in gt2_01
+  (only `0x1F801000/0x1F801010` mentions) — submission goes through
+  LIBGPU calls (the recomp HLEs them); observe via `gp0_ring` +
+  `ws_census`, not static scans.
+
+## Harness fix (2026-09-09)
+
+`tools/mips_emu.py` divided the WRONG operands for `div`/`divu`
+(capstone renders the dummy rd first: `div $zero, $a0, $a3` divides
+$a0/$a3; the old code did R[$zero]/R[$a0] — spurious div-by-zero
+whenever R[$a0] was 0). Fixed with last-two-operands mapping; self-test
+green, `xcheck_paths` 0 fails, `boot_chain.py` BOOTSTATE re-verified
+identical. Prior boot emulations evidently never executed div (all
+xchecks were exact, so no silent corruption occurred).

@@ -1,8 +1,24 @@
 # Worklog — GT2 Hybrid Recompilation
 
-Updated: 2026-09-09 (Phase E started)
+Updated: 2026-09-09 (Phase E finished)
 
 ## Done
+
+- [2026-09-09] Phase E finished (host + bounded residue):
+  * E.1 b2 + E.2 host (committed): queue/complete port, boot_run
+    integration, vsync/timer shims. 15 tests PASS.
+  * E.3 record-fill hunt: base inits ruled out one by one (gt2_01: 1
+    config byte via proven snapshot-diff; gt2_02: pure clamps; gt2_03:
+    lookup dispatcher; gt2_04: memset ignoring table); entrypoint path
+    mapped 7876 steps to interrupt-coupled dispatch (needs live game);
+    loader MISS path fills nothing. Residue narrowed to lazy
+    registration or deeper init, with protocol. lui-0x801F sites read
+    the b6 area, not the table.
+  * E.4 OT groundwork: no direct GPU regs in gt2_01 (LIBGPU HLE path —
+    observe via gp0_ring/ws_census, not static scans).
+  * Harness div-operand bug fixed + verified (selftest, xcheck 0 fails,
+    BOOTSTATE identical incl. step counts).
+  15 tests PASS; recomp untouched
 
 - [2026-09-09] Phase E.1 b2 sys.ins preload (`gt2_task_b2_queue/complete`,
   `tools/b2_kick.py`, boot_run integration): descriptor
@@ -227,12 +243,11 @@ Updated: 2026-09-09 (Phase E started)
 
 ## Next
 
-- Phase E rest: overlay-init store hunt (data-flow from `$a0`-table
-  entries) + render-loop OT emission (92 sites).
-- Then Phase F: menu/UI flow (unblocks nav + save proof), save system.
-- Carried: PGXP same-frame A/B; 4x-seam check; logo/champtim pixel
-  decode + CRS/SEQ semantics (overlay consumers); A.1-nav + A.3-save
-  proof (Phase F menu/UI); codec decoder entry (dynamic or data-flow).
+- Phase F start: menu/UI flow (the critical path — unblocks nav,
+  save proof, entrypoint runtime state, record-fill observation).
+- Then: save system (`gt2_save_frame_*` once a real save exists).
+- Carried: lazy-registration question, codec decoder entry, PGXP
+  same-frame A/B, 4x seams, logo/champtim/CRS/SEQ semantics.
 - Perf profile-first (VERDICT, PROVISIONAL — menu-phase data only): automation never reached a real race (all "race" windows were car-select/status screens), so the no-hotspot finding covers menus only. True in-race residency (74BDB962 scene member?) still unmeasured. Navigation to a real race is the critical path; re-run profile AFTER first real race. (Original verdict text kept below for the record: SIGPROF+ledger+BENCH converge on menus — 60fps held, wall ~ guest 25-30 / render 14-36 / pacer rest, no coarse guest hotspot, biggest item SCUS func_80094DC8 59KB/~10% wall. Infra kept env-gated + inert.)
 - Perf: GT2 3D runs interpreted (5-7M interp insns/s); static overlay codegen for gt2_01 is the native-execution fix
 - Texture seams at 4x bilinear (open, both 2D+3D)

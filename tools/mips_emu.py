@@ -271,7 +271,11 @@ class Emu:
             p &= 0xFFFFFFFFFFFFFFFF
             self.lo, self.hi = p & 0xFFFFFFFF, (p >> 32) & 0xFFFFFFFF
         elif m in ("div", "divu"):
-            a, b = R[self._r(ops[0])], R[self._r(ops[1])]
+            # capstone renders the dummy rd ($zero) first: operands are
+            # (rd, rs, rt); divide the LAST two (found 2026-09-09: the old
+            # code divided R[$zero]/R[rs], trapping spuriously whenever
+            # R[rs] was 0 and miscomputing otherwise).
+            a, b = R[self._r(ops[-2])], R[self._r(ops[-1])]
             if b == 0:
                 raise Trap("div by zero")
             if m == "div":
