@@ -1,0 +1,30 @@
+name: gt2 patch coherence
+
+# Generated-code edits go through idempotent patch scripts only
+# (tools/patch_*.py). This guards the core fragility: hand-edits and
+# anchor drift in generated/overlays/overlays_static.c. A regen that moves
+# an anchor fails here instead of silently producing a wrong build.
+# (No game build in CI: it needs user-provided disc images + SDL.)
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  patch-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Syntax-check patch scripts
+        run: python3 -m py_compile tools/patch_overlay_batch.py tools/patch_overlay_gatemeter.py tools/patch_overlay_lod.py tools/patch_scus_nocull.py tools/patch_overlay_prof.py
+      - name: Patch scripts report applied (exit 0)
+        run: |
+          for t in patch_overlay_batch patch_overlay_gatemeter patch_overlay_lod patch_scus_nocull patch_overlay_prof; do
+            echo "== $t --check"
+            python3 tools/$t.py --check
+          done
+      - name: Generated tree untouched by --check
+        run: git status --porcelain generated/ | tee /tmp/gen_status && test ! -s /tmp/gen_status

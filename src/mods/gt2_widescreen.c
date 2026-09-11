@@ -34,10 +34,25 @@
 extern void psx_ws_sprite_tag(struct CPUState* cpu);
 
 /* gt2_01 projection-funnel entries (compile-time VRAM 0x80010000 base).
- * Each entry: guest PC, prologue word (guard against overlay aliasing). */
+ * Each entry: guest PC, prologue word (guard against overlay aliasing).
+ *
+ * ANCHOR STATUS (instruction-proven 2026-09-09 from overlays/gt2_01.exe;
+ * only 4 sw-to-0x70($at) sites exist in the whole member, all at funnel
+ * entries — no post-projection SXY store anywhere):
+ *  - 0x80019B58 / 0x8002106C: store *(a0+0) to 0x1F800070 at ENTRY
+ *    (lw r2,0(r16/t9); sw r2,0x70(at) BEFORE any RTPS/RTPT). At tag time
+ *    the anchor holds the OBJECT KEY (= *$a0 = tag key), not a projected
+ *    SXY. Anchor equality (ax == key&0xFFFF) means "unsquash to native" —
+ *    the prim re-renders at 4:3 coords and the stretched present then
+ *    stretches it. In squash mode that is CORRECT for world geometry
+ *    (GTE pre-squashed the projection for the stretch).
+ *  - 0x8001C17C / 0x800234F8: store sp+0x20 (a STACK POINTER: addiu
+ *    r2,sp,0x20; sw r2,0x70(at)) — NOT taggable (anchor varies with call
+ *    depth and names no prim). Deliberately NOT registered.
+ * Neither pair has fired in any observed path (replay demo, menus), so
+ * tags are currently inert; the 2-site registration is the correct shape
+ * for whenever a firing path (player drive?) is found. */
 static const struct { uint32_t pc; uint32_t prologue; } gt2_ws_tag_sites[] = {
-    { 0x8001C17C, 0x27BDBFC0 },  /* sp -0x4040, RTPS @ 0x8001C1E4 */
-    { 0x800234F8, 0x27BDDFB8 },  /* sp -0x2048, LOD/duplicate of 0x8001C17C */
     { 0x80019B58, 0x27BDFFF0 },  /* sp -0x10,  RTPT @ 0x80019BFC */
     { 0x8002106C, 0x27BDFFC8 },  /* sp -0x38,  RTPT @ 0x80021128 */
 };

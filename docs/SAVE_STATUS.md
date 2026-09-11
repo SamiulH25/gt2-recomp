@@ -26,4 +26,7 @@ Complete a Sim-mode race (or save a Replay Theater replay) and check
 `saves/card1.mcd` for GT2 product blocks, then reboot and confirm the data
 loads. The headless auto-input sweep in
 `tools/patches/psxrecomp-gt2-headless.patch` drives toward arcade race
-start; Sim-mode race completion is still open work.
+start; Sim-mode race completion is still open work. When a save lands,
+the native side is ready: `gt2_mcd` (format/write/delete) + `gt2_card`
+(status driver, `decomp/tests/test_card.c`) — only the frame layout
+(`gt2_save_frame_*`) awaits the real bytes.

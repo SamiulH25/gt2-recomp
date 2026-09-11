@@ -1,0 +1,133 @@
+diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
+index 3d7fdf94..d3b29763 100644
+--- a/runtime/src/main.cpp
++++ b/runtime/src/main.cpp
+@@ -5704,38 +5704,105 @@ static void sample_headless_pad_into_sio(int override) {
+     }
+     uint64_t f = s_frame_count;
+     uint16_t buttons = 0xFFFFu;
+-    /* Each phase: hold a button for 12 of every N frames. The dump runs every
+-     * 300 frames during navigation so each step is observable. */
+-    if (f < 120) {
++    /* Attract-demo mode (GT2_AUTO_DEMO=1): navigate boot -> title, then go
++     * idle so the title demo (AI-driven 3D race) plays. Exercises the full
++     * in-race renderer with zero menu navigation — visual verification
++     * (widescreen margins, seams, LOD) without solving menu flow. */
++    static int demo_mode = -1;
++    if (demo_mode < 0) {
++        const char *e = std::getenv("GT2_AUTO_DEMO");
++        demo_mode = (e && *e && *e != '0') ? 1 : 0;
++    }
++    /* v6 (2026-09-06): holds + armor. Blind taps lose to transition-eaten
++     * frames (exit->hub worked 1 in 4 runs). Holds self-synchronize: a 400f
++     * hold parks the arrow even if 300f are eaten. Select windows stretched
++     * to ~20+ clicks with settles everywhere. Cursor model: hotspots hold
++     * indefinitely, empty space snaps back to center rest. */
++    const char *phase = "idle";
++    if (demo_mode && f >= 3000) {
++        /* Attract demo window: all buttons released, demo plays. */
++        phase = "demo-idle";
++    } else if (f < 120) {
+         /* Pre-game: nothing. */
++        phase = "pre";
+     } else if (f < 2400) {
+         /* License screen: tap START every 200 frames to advance. */
++        phase = "license";
+         if ((f % 200) < 12) buttons &= ~0x0008u; // START
+     } else if (f < 4800) {
+         /* Title → main menu: tap CROSS every 200 frames to enter. */
+-        if ((f % 200) < 12) buttons &= ~0x4000u; // CROSS
++        phase = "title";
++        if (!demo_mode && (f % 200) < 12) buttons &= ~0x4000u; // CROSS
+     } else if (f < 6000) {
+-        /* Settle on garage screen. */
++        /* Settle on garage screen (skipped in demo mode: title demo plays). */
++        phase = demo_mode ? "demo-idle" : "settle";
++    } else if (f < 6400) {
++        /* EXIT approach: hold LEFT (parks on EXIT even if early frames are
++         * eaten by the garage-entry transition). */
++        phase = "exit-hold";
++        buttons &= ~0x0080u; // LEFT held
+     } else if (f < 7200) {
+-        /* Navigate to arcade (checkered flag) icon: UP then LEFT. */
+-        uint64_t r = f - 6000;
+-        if (r < 600) {
+-            if ((r % 120) < 12) buttons &= ~0x0010u; // UP to top icon row
+-        } else {
+-            if ((r % 120) < 12) buttons &= ~0x0080u; // LEFT toward racing icon
+-        }
+-    } else if (f < 8400) {
+-        /* Select arcade icon. */
+-        if ((f % 120) < 12) buttons &= ~0x4000u; // CROSS
+-    } else if (f < 9600) {
+-        /* Arcade car list: pick first car. */
+-        if ((f % 120) < 12) buttons &= ~0x4000u; // CROSS confirm car
+-    } else if (f < 10800) {
+-        /* Track list: pick first track. */
+-        if ((f % 120) < 12) buttons &= ~0x4000u; // CROSS confirm track
++        /* Settle on EXIT (generous: transitions eat taps). */
++        phase = "exit-settle";
++    } else if (f < 10200) {
++        /* Click EXIT: garage -> My Home hub. ~20 clicks ride out eaten taps. */
++        phase = "hub-enter";
++        if ((f % 150) < 12) buttons &= ~0x4000u; // CROSS
++    } else if (f < 11000) {
++        /* Settle in hub (arrow ASSUMED on big GARAGE icon). */
++        phase = "hub-settle";
++    } else if (f < 11400) {
++        /* Hub: hold UP to the top icon row (ASSUMED grid). */
++        phase = "hub-up";
++        buttons &= ~0x0010u; // UP held
+     } else if (f < 12000) {
+-        /* Start race / confirm. */
+-        if ((f % 120) < 12) buttons &= ~0x4000u; // CROSS go
++        /* Settle after UP. */
++        phase = "hubup-settle";
++    } else if (f < 12240) {
++        /* RIGHT twice: grid -> up-arrow -> checkered (ASSUMED race entry). */
++        phase = "hub-right";
++        if ((f % 120) < 12) buttons &= ~0x0020u; // RIGHT
++    } else if (f < 12800) {
++        /* Aim settle. */
++        phase = "aim2-settle";
++    } else if (f < 15200) {
++        /* Click checkered: ASSUMED arcade/area entry. */
++        phase = "sel-area";
++        if ((f % 150) < 12) buttons &= ~0x4000u; // CROSS
++    } else if (f < 16000) {
++        /* Settle. */
++        phase = "area-settle";
++    } else if (f < 18400) {
++        /* Car list: ASSUMED first entry. */
++        phase = "sel-car";
++        if ((f % 150) < 12) buttons &= ~0x4000u; // CROSS
++    } else if (f < 19200) {
++        /* Settle. */
++        phase = "car-settle";
++    } else if (f < 21600) {
++        /* Track list: ASSUMED first entry. */
++        phase = "sel-track";
++        if ((f % 150) < 12) buttons &= ~0x4000u; // CROSS
++    } else if (f < 22400) {
++        /* Settle. */
++        phase = "track-settle";
++    } else if (f < 24800) {
++        /* Confirm / race start: ASSUMED. */
++        phase = "sel-go";
++        if ((f % 150) < 12) buttons &= ~0x4000u; // CROSS
++    } else if (f < 60000) {
++        /* Drive: hold CROSS (gas), UP nudge every 600f. */
++        phase = "drive";
++        buttons &= ~0x4000u; // CROSS held
++        if ((f % 600) < 12) buttons &= ~0x0010u; // UP nudge
++    }
++    {
++        static const char *last_phase = "";
++        if (phase != last_phase) {
++            last_phase = phase;
++            std::fprintf(stderr, "[gt2_auto] f=%llu phase=%s\n",
++                         (unsigned long long)f, phase);
++        }
+     }
+     sio_set_pad_state_slot(0, buttons);
+     sio_set_pad_state_slot(1, 0xFFFFu);

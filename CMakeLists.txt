@@ -20,6 +20,10 @@ target_include_directories(gt2 PRIVATE runtime)
 target_link_libraries(gt2 PRIVATE gt2_runtime m ZLIB::ZLIB)
 target_link_libraries(gt2_runtime PRIVATE ZLIB::ZLIB)
 
+# Native port ("decomp"): clean-room readable C for the host, no recomp.
+# Independent of psxrecomp targets; safe to always configure.
+add_subdirectory(decomp)
+
 # PSXRecomp game runtime - native recompiled GT2 via psxrecomp framework
 # Builds gt2-psxrecomp executable in same repo (optional, requires generated/ present)
 set(PSXRECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/psxrecomp" CACHE PATH "Path to psxrecomp")
@@ -72,6 +76,12 @@ if(EXISTS "${PSXRECOMP_ROOT}/runtime/runtime.cmake")
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/disc/SCUS_944.88"
                 "$<TARGET_FILE_DIR:gt2-psxrecomp>/disc/SCUS_944.88"
+            # Game-owned mods: framework POST_BUILD wipes mods/packages then
+            # stages builtins, so install ours after (this command runs later).
+            # Without this, gt2.widescreen is missing and aspect clamps to 4:3.
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/mods/gt2-widescreen"
+                "$<TARGET_FILE_DIR:gt2-psxrecomp>/mods/packages/gt2.widescreen"
             VERBATIM)
         message(STATUS "GT2 psxrecomp target gt2-psxrecomp enabled (358 shards)")
     else()

@@ -1,8 +1,29 @@
 # GT2 widescreen RE — render funnel + sprite-tag implementation
 
 Status: static analysis done (2026-09-02). Sprite-tag plugin implemented
-(2026-09-03) — runtime verification pending (overlay load address + anchor
-semantics).
+(2026-09-03). Runtime verification DONE for attract-reel path (2026-09-08,
+below) — funnels do not execute there; tags inert-but-harmless; output
+nevertheless world-correct (see `docs/ENHANCEMENTS.md`).
+
+## Runtime verdict 2026-09-08 (attract-demo reel, in-race)
+
+- The 4 funnel PCs fire NOWHERE in the reel: absent from `[gt2_phot]`
+  (17M static hits), absent from 570-entry `dirty_ram_stats` (4.9M interp
+  blocks), 0 `psx_mod_function_entry` callbacks in 300s with the mod
+  active. The reel's per-object work is `func_80027BBC/80028394` (+GTE
+  helper `func_800279E8`), all member `74BDB962`.
+- Retag of the hot PCs REJECTED by shape: neither touches scratchpad
+  `0x1F800070` (0 refs in recompiled bodies) and neither preserves `$a0`
+  (`gpr[4]` reused as scratch: `sp+16` in `80027BBC`; `gpr[4]+gpr[2]` /
+  `s0/s1` in `80028394`). No Tomba-shaped prim+anchor pair exists there.
+- 16:9 output verified world-correct without tags
+  (`docs/screenshots/demo-race-16x9-chase.png`, `x_margin=53`,
+  `squash=[3,4]`): GTE pre-squash + stretched present suffices for
+  polygon world + `hud_sprt_squash` HUD. No cull defect (GPU auto-clip
+  assumption holds).
+- OPEN: whether the 4 funnels serve player-drive/garage paths (nav
+  blocked; re-probe once drive is reachable) and what the reel's
+  per-object prim/SXY flow actually is (Phase D render-loop RE).
 
 Parent: `docs/ENHANCEMENTS.md` ("Widescreen — active, sprite tags pending
 verification").

@@ -119,6 +119,9 @@ Environment knobs:
 - `src/mods/` — game-owned enhancement plugins (linked into the binary)
 - `mods/` — mod packages (manifests)
 - `generated/` — recompiled SCUS output (regenerate, don't hand-edit)
+- `decomp/` — native port: clean-room readable C for the host (see
+  `decomp/README.md`); 19 modules tested vs disc/emu, live-gated residue
+  documented per system
 - `seeds/ghidra_funcs.txt` — 1179 codegen seed addresses
 - `tools/` — `extract.py` (2352→2048 + files), `gtfs_extract.py` (asset
   FS), `split_ovl.py` (overlay members), `disasm.py` (capstone sanity),
